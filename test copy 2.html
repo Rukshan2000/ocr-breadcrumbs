@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>OCR Scanner</title>
+  <script src="tesseract.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body { height: 100%; overflow: hidden; }
+  </style>
+</head>
+<body class="h-full bg-black text-white">
+  
+  <!-- Fullscreen Camera View -->
+  <div id="cameraView" class="fixed inset-0 z-10">
+    <video id="video" class="w-full h-full object-cover" autoplay playsinline></video>
+    
+    <!-- Top Controls -->
+    <div class="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
+      <div class="flex items-center justify-between">
+        <h1 class="text-lg font-light">OCR Scanner</h1>
+        <div class="flex gap-3">
+          <label class="flex items-center gap-2 text-xs cursor-pointer">
+            <input type="checkbox" id="preprocess" checked class="w-4 h-4 accent-blue-500 rounded">
+            <span>Enhance</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Capture Button -->
+    <div class="absolute bottom-8 left-0 right-0 flex justify-center">
+      <button id="capture" class="w-20 h-20 bg-white rounded-full border-4 border-gray-300 shadow-lg active:scale-95 transition-transform flex items-center justify-center">
+        <div class="w-16 h-16 bg-white rounded-full border-2 border-gray-400"></div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Result Modal -->
+  <div id="resultModal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/90 backdrop-blur-sm"></div>
+    <div class="relative h-full flex flex-col">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between p-4 border-b border-gray-800">
+        <h2 class="text-lg font-medium">Result</h2>
+        <button id="closeModal" class="p-2 hover:bg-gray-800 rounded-full transition-colors">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Processed Image Preview -->
+      <div id="previewContainer" class="hidden p-4">
+        <canvas id="processedCanvas" class="w-full max-h-48 object-contain rounded-lg bg-gray-900"></canvas>
+      </div>
+      
+      <!-- Result Content -->
+      <div class="flex-1 overflow-auto p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <span id="confidence" class="text-xs text-gray-400"></span>
+        </div>
+        <div id="ocr-result" class="text-gray-100 whitespace-pre-wrap leading-relaxed text-lg">
+          Processing...
+        </div>
+      </div>
+      
+      <!-- Modal Actions -->
+      <div class="p-4 border-t border-gray-800 flex gap-3">
+        <button id="copyText" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors">
+          Copy Text
+        </button>
+        <button id="scanAgain" class="flex-1 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-medium transition-colors">
+          Scan Again
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden Canvas -->
+  <canvas id="canvas" class="hidden"></canvas>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const processedCanvas = document.getElementById('processedCanvas');
+    const captureBtn = document.getElementById('capture');
+    const ocrResult = document.getElementById('ocr-result');
+    const confidenceEl = document.getElementById('confidence');
+    const preprocessCheckbox = document.getElementById('preprocess');
+    const resultModal = document.getElementById('resultModal');
+    const closeModalBtn = document.getElementById('closeModal');
+    const copyTextBtn = document.getElementById('copyText');
+    const scanAgainBtn = document.getElementById('scanAgain');
+    const previewContainer = document.getElementById('previewContainer');
+    const ctx = canvas.getContext('2d');
+    const processedCtx = processedCanvas.getContext('2d');
+
+    // Access webcam with higher resolution
+    navigator.mediaDevices.getUserMedia({ 
+      video: { 
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        facingMode: 'environment'
+      } 
+    })
+      .then(stream => video.srcObject = stream)
+      .catch(err => alert('Camera error: ' + err));
+
+    // Image preprocessing
+    function preprocessImage(imageData) {
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        const contrast = 1.5;
+        const factor = (259 * (contrast * 100 + 255)) / (255 * (259 - contrast * 100));
+        let enhanced = factor * (gray - 128) + 128;
+        const binarized = enhanced > 128 ? 255 : 0;
+        data[i] = data[i + 1] = data[i + 2] = binarized;
+      }
+      return imageData;
+    }
+
+    // Show/hide modal
+    function showModal() {
+      resultModal.classList.remove('hidden');
+    }
+    
+    function hideModal() {
+      resultModal.classList.add('hidden');
+    }
+
+    // Dalada Maligawa ticket text correction
+    function correctTicketText(text) {
+      const corrections = [
+        // Field names - common OCR mistakes
+        [/\bDAT[E3]\b/gi, 'DATE'],
+        [/\bT[1I!l]M[E3]\b/gi, 'TIME'],
+        [/\bT[E3]RM[1I!l]NAL\s*[1I!l]?[D0O]\b/gi, 'TERMINAL ID'],
+        [/\bL[O0]CAT[1I!l][O0]N\b/gi, 'LOCATION'],
+        [/\bN[O0][.,]?\s*T[1I!l]CK[E3]TS?\b/gi, 'NO. TICKETS'],
+        [/\bT[O0]TAL\s*AM[O0]UNT\b/gi, 'TOTAL AMOUNT'],
+        [/\bTRAC[E3]\s*N[O0]\b/gi, 'TRACE NO'],
+        [/\bR[E3]F+[E3]R+[E3]NC[E3]\s*N[O0]\b/gi, 'REFFERENCE NO'],
+        [/\bR[E3]F[.,]?\s*N[O0]\b/gi, 'REFFERENCE NO'],
+        [/\bT[1I!l]CK[E3]T\s*AM[O0]UNT\s*P\/?P\b/gi, 'TICKET AMOUNT P/P'],
+        [/[#H]\s*T[1I!l]CK[E3]TS?\b/gi, '#TICKETS'],
+        
+        // Location values
+        [/\bMa[1I!l]n\s*[E3]ntranc[e3]\b/gi, 'Main Entrance'],
+        
+        // Temple name corrections
+        [/\bSR[1I!l]\s*DALADA\s*MAL[1I!l]?GAWA\b/gi, 'SRI DALADA MALIGAWA'],
+        [/\bDALADA\s*MAL[1I!l]?GAWA\b/gi, 'DALADA MALIGAWA'],
+        [/\bT[E3]MPL[E3]\s*[O0]F\s*TH[E3]\s*T[O0]{2}TH\s*R[E3]L[1I!l]C\b/gi, 'TEMPLE OF THE TOOTH RELIC'],
+        
+        // Common words
+        [/\bKANDY\b/gi, 'KANDY'],
+        [/\bSR[1I!l]\s*LANKA\b/gi, 'SRI LANKA'],
+        [/\bF[O0]R[E3][1I!l]GN[E3]RS\b/gi, 'FOREIGNERS'],
+        [/\bP[E3]RS[O0]N\b/gi, 'PERSON'],
+        [/\b[O0]NLY\b/gi, 'ONLY'],
+        [/\b[E3]NTRANC[E3]\b/gi, 'ENTRANCE'],
+        [/\bT[1I!l]CK[E3]T\b/gi, 'TICKET'],
+        [/\bBALANC[E3]\b/gi, 'BALANCE'],
+        [/\bT[O0]TAL\s*D[E3]P\b/gi, 'TOTAL DEP'],
+        
+        // Fix common number substitutions in field context
+        [/\b[O0]1\b/g, '01'],
+        [/\bLKR\b/gi, 'LKR'],
+        [/\bHRS\b/gi, 'HRS'],
+        
+        // Clean up artifacts
+        [/@ent/gi, ''],
+        [/\(\?\}[0-9]*\s*['"]?\s*A\s*tbl%/gi, ''],
+        [/<"\/£'>~,,\s*\d*/gi, ''],
+        [/%\s*EE&\s*\d*/gi, ''],
+        [/<\s*ARX\s*=\s*i/gi, ''],
+        [/Y,\s*=/gi, ''],
+        [/T\s*mancrtt/gi, ''],
+        [/\[=\];?/g, ''],
+        [/\[\s*\|\s*\]/g, ''],
+      ];
+
+      let corrected = text;
+      for (const [pattern, replacement] of corrections) {
+        corrected = corrected.replace(pattern, replacement);
+      }
+      
+      // Clean up multiple spaces and blank lines
+      corrected = corrected.replace(/[ \t]+/g, ' ');
+      corrected = corrected.replace(/\n\s*\n\s*\n/g, '\n\n');
+      
+      return corrected.trim();
+    }
+
+    // Capture and OCR
+    captureBtn.addEventListener('click', () => {
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      processedCanvas.width = canvas.width;
+      processedCanvas.height = canvas.height;
+      
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      let imageDataUrl;
+      
+      if (preprocessCheckbox.checked) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        processedCtx.putImageData(preprocessImage(imageData), 0, 0);
+        imageDataUrl = processedCanvas.toDataURL('image/png');
+        previewContainer.classList.remove('hidden');
+      } else {
+        imageDataUrl = canvas.toDataURL('image/png');
+        previewContainer.classList.add('hidden');
+      }
+
+      ocrResult.textContent = 'Processing...';
+      confidenceEl.textContent = '';
+      showModal();
+
+      Tesseract.recognize(imageDataUrl, 'eng', { 
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            ocrResult.textContent = `Processing... ${Math.round(m.progress * 100)}%`;
+          }
+        },
+        tessedit_pageseg_mode: '6',
+        preserve_interword_spaces: '1',
+      }).then(({ data: { text, confidence } }) => {
+        ocrResult.textContent = correctTicketText(text.trim()) || 'No text detected.';
+        confidenceEl.textContent = `Confidence: ${confidence.toFixed(0)}%`;
+      }).catch(err => {
+        ocrResult.textContent = 'Error: ' + err;
+      });
+    });
+
+    // Modal controls
+    closeModalBtn.addEventListener('click', hideModal);
+    scanAgainBtn.addEventListener('click', hideModal);
+    
+    copyTextBtn.addEventListener('click', () => {
+      const text = ocrResult.textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        copyTextBtn.textContent = 'Copied!';
+        setTimeout(() => copyTextBtn.textContent = 'Copy Text', 2000);
+      });
+    });
+  </script>
+</body>
+</html>

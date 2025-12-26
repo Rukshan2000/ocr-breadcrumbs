@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>OCR Scanner</title>
+  
+  <script src="tesseract.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body { height: 100%; overflow: hidden; }
+    
+    /* Alignment guide styles */
+    .level-indicator {
+      transition: all 0.1s ease-out;
+    }
+    .level-bubble {
+      transition: transform 0.1s ease-out;
+    }
+    .alignment-good {
+      background-color: rgba(34, 197, 94, 0.8) !important;
+      border-color: #22c55e !important;
+    }
+    .alignment-warning {
+      background-color: rgba(234, 179, 8, 0.8) !important;
+      border-color: #eab308 !important;
+    }
+    .alignment-bad {
+      background-color: rgba(239, 68, 68, 0.8) !important;
+      border-color: #ef4444 !important;
+    }
+    
+    /* Cropper styles */
+    .crop-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+    }
+    .crop-area {
+      position: absolute;
+      border: 2px dashed #fff;
+      background: transparent;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+      cursor: move;
+      touch-action: none;
+    }
+    .crop-handle {
+      position: absolute;
+      width: 24px;
+      height: 24px;
+      background: #fff;
+      border-radius: 50%;
+      border: 2px solid #3b82f6;
+      touch-action: none;
+    }
+    .crop-handle-tl { top: -12px; left: -12px; cursor: nwse-resize; }
+    .crop-handle-tr { top: -12px; right: -12px; cursor: nesw-resize; }
+    .crop-handle-bl { bottom: -12px; left: -12px; cursor: nesw-resize; }
+    .crop-handle-br { bottom: -12px; right: -12px; cursor: nwse-resize; }
+  </style>
+</head>
+<body class="h-full bg-black text-white">
+  
+  <!-- Fullscreen Camera View -->
+  <div id="cameraView" class="fixed inset-0 z-10">
+    <video id="video" class="w-full h-full object-cover" autoplay playsinline></video>
+    
+    <!-- Alignment Guide Overlay -->
+    <div id="alignmentGuide" class="absolute inset-0 pointer-events-none">
+      <!-- Center crosshair -->
+      <div class="absolute inset-0 flex items-center justify-center">
+        <div class="relative w-64 h-40 border-2 border-white/50 rounded-lg">
+          <!-- Corner markers -->
+          <div class="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div>
+          <div class="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div>
+          <div class="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div>
+          <div class="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg"></div>
+          <!-- Center dot -->
+          <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full"></div>
+        </div>
+      </div>
+      
+      <!-- Level indicator (bubble level) -->
+      <div id="levelIndicator" class="absolute top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
+        <!-- Horizontal level -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-white/70">TILT</span>
+          <div class="relative w-24 h-6 bg-black/50 rounded-full border border-white/30 overflow-hidden">
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-0.5 h-4 bg-white/50"></div>
+            <div id="tiltBubble" class="level-bubble absolute top-1/2 left-1/2 -translate-y-1/2 w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-lg"></div>
+          </div>
+        </div>
+        
+        <!-- Front-back level -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-white/70">FLAT</span>
+          <div class="relative w-24 h-6 bg-black/50 rounded-full border border-white/30 overflow-hidden">
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-0.5 h-4 bg-white/50"></div>
+            <div id="flatBubble" class="level-bubble absolute top-1/2 left-1/2 -translate-y-1/2 w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-lg"></div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Alignment status -->
+      <div id="alignmentStatus" class="absolute top-36 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-xs font-medium bg-green-500/80 text-white">
+        ✓ Aligned
+      </div>
+      
+      <!-- Angle readings -->
+      <div id="angleReadings" class="absolute bottom-32 left-1/2 -translate-x-1/2 flex gap-4 text-xs text-white/70 bg-black/40 px-3 py-1 rounded-full">
+        <span>X: <span id="angleX">0</span>°</span>
+        <span>Y: <span id="angleY">0</span>°</span>
+        <span>Z: <span id="angleZ">0</span>°</span>
+      </div>
+    </div>
+    
+    <!-- Top Controls -->
+    <div class="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
+      <div class="flex items-center justify-between">
+        <h1 class="text-lg font-light">OCR Scanner</h1>
+        <div class="flex gap-3">
+          <label class="flex items-center gap-2 text-xs cursor-pointer">
+            <input type="checkbox" id="showGuide" checked class="w-4 h-4 accent-green-500 rounded">
+            <span>Guide</span>
+          </label>
+          <label class="flex items-center gap-2 text-xs cursor-pointer">
+            <input type="checkbox" id="preprocess" checked class="w-4 h-4 accent-blue-500 rounded">
+            <span>Enhance</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Capture Button -->
+    <div class="absolute bottom-8 left-0 right-0 flex justify-center">
+      <button id="capture" class="w-20 h-20 bg-white rounded-full border-4 border-gray-300 shadow-lg active:scale-95 transition-transform flex items-center justify-center">
+        <div class="w-16 h-16 bg-white rounded-full border-2 border-gray-400"></div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Result Modal -->
+  <div id="resultModal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/90 backdrop-blur-sm"></div>
+    <div class="relative h-full flex flex-col">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between p-4 border-b border-gray-800">
+        <h2 class="text-lg font-medium">Result</h2>
+        <button id="closeModal" class="p-2 hover:bg-gray-800 rounded-full transition-colors">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Processed Image Preview -->
+      <div id="previewContainer" class="hidden p-4">
+        <canvas id="processedCanvas" class="w-full max-h-48 object-contain rounded-lg bg-gray-900"></canvas>
+      </div>
+      
+      <!-- Result Content -->
+      <div class="flex-1 overflow-auto p-4">
+        <div class="flex items-center justify-between mb-3">
+          <span id="confidence" class="text-xs text-gray-400"></span>
+          <button id="viewDataBtn" class="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium transition-colors hidden">
+            View Data
+          </button>
+        </div>
+        <div id="ocr-result" class="text-gray-100 whitespace-pre-wrap leading-relaxed text-lg">
+          Processing...
+        </div>
+      </div>
+      
+      <!-- Modal Actions -->
+      <div class="p-4 border-t border-gray-800 flex gap-3">
+        <button id="copyText" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors">
+          Copy Text
+        </button>
+        <button id="scanAgain" class="flex-1 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-medium transition-colors">
+          Scan Again
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data View Modal - Bill Template -->
+  <div id="dataModal" class="fixed inset-0 z-[60] hidden">
+    <div class="absolute inset-0 bg-gray-900"></div>
+    <div class="relative h-full flex flex-col">
+      
+      <!-- Data Modal Header -->
+      <div class="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-800">
+        <h2 class="text-lg font-medium">Ticket Preview</h2>
+        <button id="closeDataModal" class="p-2 hover:bg-gray-700 rounded-full transition-colors">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Bill Template Content -->
+      <div class="flex-1 overflow-auto p-4 flex justify-center">
+        <div id="billTemplate" class="bg-white text-black w-full max-w-sm rounded-lg shadow-2xl overflow-hidden" style="font-family: 'Courier New', monospace;">
+          
+          <!-- Header with Logo -->
+          <div class="text-center pt-6 pb-4 px-4">
+            <!-- Temple Icon/Logo -->
+            <div class="w-20 h-20 mx-auto mb-3 border-2 border-gray-400 rounded-full flex items-center justify-center">
+              <svg class="w-12 h-12 text-gray-700" viewBox="0 0 64 64" fill="currentColor">
+                <path d="M32 8L12 24v4h4v24h32V28h4v-4L32 8zm0 6l12 10v22H20V24l12-10zm-4 14h8v12h-8V28z"/>
+                <path d="M28 12h8v4h-8zM24 6h16v4H24z"/>
+              </svg>
+            </div>
+            <h1 class="text-lg font-bold tracking-wide">SRI DALADA MALIGAWA</h1>
+            <div class="text-xs mt-1 text-gray-600 leading-relaxed">
+              <p class="font-semibold">TEMPLE OF THE TOOTH RELIC</p>
+              <p>KANDY, SRI LANKA</p>
+              <p class="text-blue-600">TEL : +94812234226</p>
+              <p>EMAIL : info@sridaladamaligawa.lk</p>
+              <p>WEB : www.sridaladamaligawa.lk</p>
+            </div>
+          </div>
+          
+          <!-- Divider -->
+          <div class="border-t border-dashed border-gray-400 mx-4"></div>
+          
+          <!-- Main Info Section -->
+          <div class="px-4 py-3 text-xs">
+            <div class="grid grid-cols-2 gap-y-1">
+              <div><span class="text-gray-500">DATE</span> :<span id="billDate" class="font-semibold ml-1">--</span></div>
+              <div><span class="text-gray-500">TIME</span> :<span id="billTime" class="font-semibold ml-1">--</span></div>
+              <div><span class="text-gray-500">TERMINAL ID</span> :<span id="billTerminal" class="font-semibold ml-1">--</span></div>
+              <div><span class="text-gray-500">LOCATION</span> :<span id="billLocation" class="font-semibold ml-1">--</span></div>
+            </div>
+            <div class="mt-2">
+              <span class="text-gray-500">NO. TICKETS</span> :<span id="billTickets" class="font-semibold ml-1">--</span>
+            </div>
+            
+            <!-- Amount Row -->
+            <div class="flex justify-between items-center mt-2 py-2 border-t border-b border-gray-300">
+              <span class="text-gray-500">TOTAL AMOUNT:</span>
+              <span id="billAmount" class="font-bold text-base">LKR 0.00</span>
+            </div>
+          </div>
+          
+          <!-- Divider -->
+          <div class="border-t border-dashed border-gray-400 mx-4"></div>
+          
+          <!-- Deposit Info -->
+          <div class="px-4 py-2 text-xs">
+            <div class="flex justify-between">
+              <span class="text-gray-500">TOTAL DEP</span>
+              <span>LKR</span>
+              <span id="billDep" class="font-semibold">0.00</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">BALANCE</span>
+              <span>LKR</span>
+              <span class="font-semibold">0.00</span>
+            </div>
+          </div>
+          
+          <!-- Divider -->
+          <div class="border-t border-dashed border-gray-400 mx-4"></div>
+          
+          <!-- Trace & Reference -->
+          <div class="px-4 py-2 text-xs">
+            <div class="mb-1">
+              <span class="text-gray-500">TRACE NO</span>
+              <span class="ml-2">:</span>
+              <span id="billTrace" class="font-mono ml-1">--</span>
+            </div>
+            <div class="break-all">
+              <span class="text-gray-500">REFERENCE NO</span>:<span id="billRef" class="font-mono text-[10px] ml-1">--</span>
+            </div>
+          </div>
+          
+          <!-- Divider -->
+          <div class="border-t border-dashed border-gray-400 mx-4"></div>
+          
+          <!-- Ticket Type -->
+          <div class="px-4 py-3 text-center">
+            <p class="font-bold text-sm border border-gray-400 py-2 rounded">
+              ENTRANCE TICKET FOR FOREIGNERS - ONE PERSON ONLY
+            </p>
+          </div>
+          
+          <!-- Summary Table -->
+          <div class="px-4 pb-3">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="border-b border-gray-300">
+                  <th class="text-left py-1 text-gray-500 font-normal">TICKET AMOUNT P/P</th>
+                  <th class="text-center py-1 text-gray-500 font-normal">#TICKETS</th>
+                  <th class="text-right py-1 text-gray-500 font-normal">TOTAL AMOUNT</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td id="billAmountPP" class="py-1 font-semibold">0.00 LKR</td>
+                  <td id="billTicketCount" class="text-center py-1 font-semibold">0</td>
+                  <td id="billTotalAmount" class="text-right py-1 font-semibold">0.00 LKR</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <!-- QR Code Placeholder -->
+          <div class="px-4 pb-4 flex justify-between items-end">
+            <div class="w-16 h-16 border-2 border-gray-400 flex items-center justify-center">
+              <svg class="w-12 h-12 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 3h6v6H3V3zm2 2v2h2V5H5zm8-2h6v6h-6V3zm2 2v2h2V5h-2zM3 13h6v6H3v-6zm2 2v2h2v-2H5zm13-2h1v1h-1v-1zm-3 0h1v1h-1v-1zm1 1h1v1h-1v-1zm-1 1h1v1h-1v-1zm2 0h1v1h-1v-1zm0 2h1v1h-1v-1zm-2 0h1v1h-1v-1zm3-3h1v1h-1v-1zm0 2h1v1h-1v-1z"/>
+              </svg>
+            </div>
+            <div class="w-16 h-16 border-2 border-gray-400 flex items-center justify-center">
+              <svg class="w-12 h-12 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 3h6v6H3V3zm2 2v2h2V5H5zm8-2h6v6h-6V3zm2 2v2h2V5h-2zM3 13h6v6H3v-6zm2 2v2h2v-2H5zm13-2h1v1h-1v-1zm-3 0h1v1h-1v-1zm1 1h1v1h-1v-1zm-1 1h1v1h-1v-1zm2 0h1v1h-1v-1zm0 2h1v1h-1v-1zm-2 0h1v1h-1v-1zm3-3h1v1h-1v-1zm0 2h1v1h-1v-1z"/>
+              </svg>
+            </div>
+          </div>
+          
+          <!-- Page Number -->
+          <div class="text-right px-4 pb-2 text-xs text-gray-400">
+            01/01
+          </div>
+          
+        </div>
+      </div>
+      
+      <!-- Data Modal Actions -->
+      <div class="p-4 border-t border-gray-700 bg-gray-800 flex gap-3">
+        <button id="copyDataBtn" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors">
+          Copy Data
+        </button>
+        <button id="closeDataModalBtn" class="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium transition-colors">
+          Back
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Cropper Modal -->
+  <div id="cropperModal" class="fixed inset-0 z-[70] hidden">
+    <div class="absolute inset-0 bg-black"></div>
+    <div class="relative h-full flex flex-col">
+      
+      <!-- Cropper Header -->
+      <div class="flex items-center justify-between p-4 border-b border-gray-800 bg-black/80 z-10">
+        <h2 class="text-lg font-medium">Select Area to Scan</h2>
+        <button id="closeCropper" class="p-2 hover:bg-gray-800 rounded-full transition-colors">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Cropper Canvas Container -->
+      <div id="cropperContainer" class="flex-1 relative overflow-hidden" style="min-height: 300px;">
+        <canvas id="cropperCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+        <!-- Crop selection area -->
+        <div id="cropArea" class="crop-area" style="display: none;">
+          <div class="crop-handle crop-handle-tl" data-handle="tl"></div>
+          <div class="crop-handle crop-handle-tr" data-handle="tr"></div>
+          <div class="crop-handle crop-handle-bl" data-handle="bl"></div>
+          <div class="crop-handle crop-handle-br" data-handle="br"></div>
+        </div>
+      </div>
+      
+      <!-- Cropper Actions -->
+      <div class="p-4 border-t border-gray-800 bg-black/80 flex gap-3">
+        <button id="resetCrop" class="flex-1 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-medium transition-colors">
+          Reset
+        </button>
+        <button id="confirmCrop" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors">
+          Scan Selected Area
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden Canvas -->
+  <canvas id="canvas" class="hidden"></canvas>
+  <canvas id="croppedCanvas" class="hidden"></canvas>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const processedCanvas = document.getElementById('processedCanvas');
+    const captureBtn = document.getElementById('capture');
+    const ocrResult = document.getElementById('ocr-result');
+    const confidenceEl = document.getElementById('confidence');
+    const preprocessCheckbox = document.getElementById('preprocess');
+    const resultModal = document.getElementById('resultModal');
+    const closeModalBtn = document.getElementById('closeModal');
+    const copyTextBtn = document.getElementById('copyText');
+    const scanAgainBtn = document.getElementById('scanAgain');
+    const previewContainer = document.getElementById('previewContainer');
+    const viewDataBtn = document.getElementById('viewDataBtn');
+    const dataModal = document.getElementById('dataModal');
+    const closeDataModal = document.getElementById('closeDataModal');
+    const closeDataModalBtn = document.getElementById('closeDataModalBtn');
+    const copyDataBtn = document.getElementById('copyDataBtn');
+    const dataFields = document.getElementById('dataFields');
+    const ctx = canvas.getContext('2d');
+    const processedCtx = processedCanvas.getContext('2d');
+    
+    // Cropper elements
+    const cropperModal = document.getElementById('cropperModal');
+    const cropperContainer = document.getElementById('cropperContainer');
+    const cropperCanvas = document.getElementById('cropperCanvas');
+    const croppedCanvas = document.getElementById('croppedCanvas');
+    const cropArea = document.getElementById('cropArea');
+    const closeCropperBtn = document.getElementById('closeCropper');
+    const resetCropBtn = document.getElementById('resetCrop');
+    const confirmCropBtn = document.getElementById('confirmCrop');
+    const cropperCtx = cropperCanvas.getContext('2d');
+    const croppedCtx = croppedCanvas.getContext('2d');
+    
+    // Alignment guide elements
+    const alignmentGuide = document.getElementById('alignmentGuide');
+    const showGuideCheckbox = document.getElementById('showGuide');
+    const tiltBubble = document.getElementById('tiltBubble');
+    const flatBubble = document.getElementById('flatBubble');
+    const alignmentStatus = document.getElementById('alignmentStatus');
+    const angleX = document.getElementById('angleX');
+    const angleY = document.getElementById('angleY');
+    const angleZ = document.getElementById('angleZ');
+    
+    let extractedData = {};
+    let currentOrientation = { alpha: 0, beta: 0, gamma: 0 };
+    
+    // Cropper state
+    let cropState = {
+      isDragging: false,
+      isResizing: false,
+      activeHandle: null,
+      startX: 0,
+      startY: 0,
+      cropX: 0,
+      cropY: 0,
+      cropWidth: 0,
+      cropHeight: 0,
+      imageScale: 1,
+      offsetX: 0,
+      offsetY: 0
+    };
+
+    // Toggle alignment guide visibility
+    showGuideCheckbox.addEventListener('change', (e) => {
+      alignmentGuide.style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    // Request device orientation permission (required for iOS 13+)
+    async function requestOrientationPermission() {
+      if (typeof DeviceOrientationEvent !== 'undefined' && 
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          const permission = await DeviceOrientationEvent.requestPermission();
+          if (permission === 'granted') {
+            initOrientationListener();
+          }
+        } catch (error) {
+          console.log('Orientation permission denied:', error);
+        }
+      } else {
+        // Non-iOS devices don't need permission
+        initOrientationListener();
+      }
+    }
+
+    // Initialize orientation listener
+    function initOrientationListener() {
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+
+    // Handle device orientation changes
+    function handleOrientation(event) {
+      const alpha = event.alpha || 0; // Z-axis rotation (compass direction) 0-360
+      const beta = event.beta || 0;   // X-axis rotation (front-back tilt) -180 to 180
+      const gamma = event.gamma || 0; // Y-axis rotation (left-right tilt) -90 to 90
+      
+      currentOrientation = { alpha, beta, gamma };
+      
+      // Update angle displays
+      angleX.textContent = beta.toFixed(1);
+      angleY.textContent = gamma.toFixed(1);
+      angleZ.textContent = alpha.toFixed(1);
+      
+      // Calculate bubble positions
+      // For scanning, we want the phone roughly perpendicular to the ground (beta around 90)
+      // and not tilted side-to-side (gamma around 0)
+      
+      // Tilt bubble (left-right, based on gamma)
+      // gamma: -90 to 90, we want 0
+      const tiltOffset = Math.max(-40, Math.min(40, gamma * 1.5));
+      tiltBubble.style.transform = `translateY(-50%) translateX(calc(-50% + ${tiltOffset}px))`;
+      
+      // Flat bubble (front-back, based on beta)
+      // For scanning documents: ideal range is 45-90 degrees (phone angled over document)
+      // We'll consider "flat" as beta between 30-100 degrees (flexible range)
+      // Center point is around 60 degrees
+      const targetBeta = 60; // Target angle (phone tilted forward over document)
+      const betaDeviation = beta - targetBeta;
+      const betaOffset = Math.max(-40, Math.min(40, betaDeviation * 0.8));
+      flatBubble.style.transform = `translateY(-50%) translateX(calc(-50% + ${betaOffset}px))`;
+      
+      // Update bubble colors based on alignment
+      updateBubbleColor(tiltBubble, Math.abs(gamma));
+      
+      // For flat bubble, be more lenient - green if within 30-90 degree range
+      const flatDeviation = Math.abs(betaDeviation);
+      updateFlatBubbleColor(flatBubble, flatDeviation, beta);
+      
+      // Update overall alignment status
+      updateAlignmentStatus(gamma, flatDeviation, beta);
+    }
+
+    // Update bubble color based on deviation
+    function updateBubbleColor(bubble, deviation) {
+      bubble.classList.remove('alignment-good', 'alignment-warning', 'alignment-bad');
+      
+      if (deviation < 3) {
+        bubble.classList.add('alignment-good');
+      } else if (deviation < 10) {
+        bubble.classList.add('alignment-warning');
+      } else {
+        bubble.classList.add('alignment-bad');
+      }
+    }
+
+    // Update flat bubble color - more lenient for scanning angle
+    function updateFlatBubbleColor(bubble, deviation, beta) {
+      bubble.classList.remove('alignment-good', 'alignment-warning', 'alignment-bad');
+      
+      // Good range: phone angled 30-90 degrees (pointing down at document)
+      if (beta >= 30 && beta <= 90) {
+        if (deviation < 15) {
+          bubble.classList.add('alignment-good');
+        } else {
+          bubble.classList.add('alignment-warning');
+        }
+      } else if (beta >= 15 && beta <= 110) {
+        bubble.classList.add('alignment-warning');
+      } else {
+        bubble.classList.add('alignment-bad');
+      }
+    }
+
+    // Update alignment status indicator
+    function updateAlignmentStatus(gamma, flatDeviation, beta) {
+      const tiltOk = Math.abs(gamma) < 5;
+      const flatOk = beta >= 30 && beta <= 90;
+      
+      alignmentStatus.classList.remove('bg-green-500/80', 'bg-yellow-500/80', 'bg-red-500/80');
+      
+      if (tiltOk && flatOk) {
+        alignmentStatus.innerHTML = '✓ Perfect - Capture Now!';
+        alignmentStatus.classList.add('bg-green-500/80');
+      } else if (tiltOk || flatOk) {
+        const issue = !tiltOk ? 'Level the phone' : 'Adjust angle';
+        alignmentStatus.innerHTML = `⚠ ${issue}`;
+        alignmentStatus.classList.add('bg-yellow-500/80');
+      } else {
+        alignmentStatus.innerHTML = '✗ Align camera';
+        alignmentStatus.classList.add('bg-red-500/80');
+      }
+    }
+
+    // Request permission on first user interaction
+    document.addEventListener('click', function requestOnce() {
+      requestOrientationPermission();
+      document.removeEventListener('click', requestOnce);
+    }, { once: true });
+
+    // Also try to initialize without permission for Android
+    requestOrientationPermission();
+
+    // ============ IMAGE CROPPER FUNCTIONS ============
+    
+    let capturedImageDataUrl = '';
+    
+    function showCropper(imageDataUrl) {
+      capturedImageDataUrl = imageDataUrl;
+      cropperModal.classList.remove('hidden');
+      
+      // Wait for modal to be visible and container to have dimensions
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          initCropperImage();
+        }, 50);
+      });
+    }
+    
+    function initCropperImage() {
+      const img = new Image();
+      img.onload = () => {
+        const containerWidth = cropperContainer.clientWidth || window.innerWidth;
+        const containerHeight = cropperContainer.clientHeight || (window.innerHeight - 140);
+        
+        if (containerWidth === 0 || containerHeight === 0) {
+          // Retry if container still has no dimensions
+          setTimeout(initCropperImage, 100);
+          return;
+        }
+        
+        // Calculate scale to fit image in container
+        const scaleX = containerWidth / img.width;
+        const scaleY = containerHeight / img.height;
+        cropState.imageScale = Math.min(scaleX, scaleY, 1);
+        
+        const displayWidth = img.width * cropState.imageScale;
+        const displayHeight = img.height * cropState.imageScale;
+        
+        // Center the image
+        cropState.offsetX = (containerWidth - displayWidth) / 2;
+        cropState.offsetY = (containerHeight - displayHeight) / 2;
+        
+        // Set canvas size and draw image
+        cropperCanvas.width = containerWidth;
+        cropperCanvas.height = containerHeight;
+        cropperCtx.fillStyle = '#000';
+        cropperCtx.fillRect(0, 0, containerWidth, containerHeight);
+        cropperCtx.drawImage(img, cropState.offsetX, cropState.offsetY, displayWidth, displayHeight);
+        
+        // Store original image for reference
+        cropState.originalImage = img;
+        
+        // Initialize crop area (80% of image, centered)
+        const margin = 0.1;
+        cropState.cropX = cropState.offsetX + displayWidth * margin;
+        cropState.cropY = cropState.offsetY + displayHeight * margin;
+        cropState.cropWidth = displayWidth * (1 - 2 * margin);
+        cropState.cropHeight = displayHeight * (1 - 2 * margin);
+        
+        updateCropArea();
+        cropArea.style.display = 'block';
+      };
+      img.src = capturedImageDataUrl;
+    }
+    
+    function updateCropArea() {
+      cropArea.style.left = cropState.cropX + 'px';
+      cropArea.style.top = cropState.cropY + 'px';
+      cropArea.style.width = cropState.cropWidth + 'px';
+      cropArea.style.height = cropState.cropHeight + 'px';
+    }
+    
+    function getEventPos(e) {
+      const rect = cropperContainer.getBoundingClientRect();
+      const touch = e.touches ? e.touches[0] : e;
+      return {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top
+      };
+    }
+    
+    function startCropInteraction(e) {
+      e.preventDefault();
+      const pos = getEventPos(e);
+      const handle = e.target.dataset?.handle;
+      
+      if (handle) {
+        cropState.isResizing = true;
+        cropState.activeHandle = handle;
+      } else if (e.target === cropArea || e.target.closest('#cropArea')) {
+        cropState.isDragging = true;
+      }
+      
+      cropState.startX = pos.x;
+      cropState.startY = pos.y;
+    }
+    
+    function moveCropInteraction(e) {
+      if (!cropState.isDragging && !cropState.isResizing) return;
+      e.preventDefault();
+      
+      const pos = getEventPos(e);
+      const deltaX = pos.x - cropState.startX;
+      const deltaY = pos.y - cropState.startY;
+      
+      const containerWidth = cropperContainer.clientWidth;
+      const containerHeight = cropperContainer.clientHeight;
+      const minSize = 50;
+      
+      if (cropState.isDragging) {
+        cropState.cropX = Math.max(0, Math.min(containerWidth - cropState.cropWidth, cropState.cropX + deltaX));
+        cropState.cropY = Math.max(0, Math.min(containerHeight - cropState.cropHeight, cropState.cropY + deltaY));
+      } else if (cropState.isResizing) {
+        const handle = cropState.activeHandle;
+        
+        if (handle.includes('l')) {
+          const newWidth = cropState.cropWidth - deltaX;
+          if (newWidth >= minSize && cropState.cropX + deltaX >= 0) {
+            cropState.cropX += deltaX;
+            cropState.cropWidth = newWidth;
+          }
+        }
+        if (handle.includes('r')) {
+          const newWidth = cropState.cropWidth + deltaX;
+          if (newWidth >= minSize && cropState.cropX + newWidth <= containerWidth) {
+            cropState.cropWidth = newWidth;
+          }
+        }
+        if (handle.includes('t')) {
+          const newHeight = cropState.cropHeight - deltaY;
+          if (newHeight >= minSize && cropState.cropY + deltaY >= 0) {
+            cropState.cropY += deltaY;
+            cropState.cropHeight = newHeight;
+          }
+        }
+        if (handle.includes('b')) {
+          const newHeight = cropState.cropHeight + deltaY;
+          if (newHeight >= minSize && cropState.cropY + newHeight <= containerHeight) {
+            cropState.cropHeight = newHeight;
+          }
+        }
+      }
+      
+      cropState.startX = pos.x;
+      cropState.startY = pos.y;
+      updateCropArea();
+    }
+    
+    function endCropInteraction() {
+      cropState.isDragging = false;
+      cropState.isResizing = false;
+      cropState.activeHandle = null;
+    }
+    
+    // Cropper event listeners
+    cropArea.addEventListener('mousedown', startCropInteraction);
+    cropArea.addEventListener('touchstart', startCropInteraction, { passive: false });
+    document.addEventListener('mousemove', moveCropInteraction);
+    document.addEventListener('touchmove', moveCropInteraction, { passive: false });
+    document.addEventListener('mouseup', endCropInteraction);
+    document.addEventListener('touchend', endCropInteraction);
+    
+    closeCropperBtn.addEventListener('click', () => {
+      cropperModal.classList.add('hidden');
+    });
+    
+    resetCropBtn.addEventListener('click', () => {
+      // Reset to 80% centered
+      const img = cropState.originalImage;
+      if (!img) return;
+      
+      const containerWidth = cropperContainer.clientWidth;
+      const containerHeight = cropperContainer.clientHeight;
+      const displayWidth = img.width * cropState.imageScale;
+      const displayHeight = img.height * cropState.imageScale;
+      
+      const margin = 0.1;
+      cropState.cropX = cropState.offsetX + displayWidth * margin;
+      cropState.cropY = cropState.offsetY + displayHeight * margin;
+      cropState.cropWidth = displayWidth * (1 - 2 * margin);
+      cropState.cropHeight = displayHeight * (1 - 2 * margin);
+      updateCropArea();
+    });
+    
+    confirmCropBtn.addEventListener('click', () => {
+      // Calculate actual pixel coordinates from the original image
+      const scaleBack = 1 / cropState.imageScale;
+      const sourceX = (cropState.cropX - cropState.offsetX) * scaleBack;
+      const sourceY = (cropState.cropY - cropState.offsetY) * scaleBack;
+      const sourceWidth = cropState.cropWidth * scaleBack;
+      const sourceHeight = cropState.cropHeight * scaleBack;
+      
+      // Create cropped image
+      croppedCanvas.width = sourceWidth;
+      croppedCanvas.height = sourceHeight;
+      croppedCtx.drawImage(canvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+      
+      let imageDataUrl;
+      
+      if (preprocessCheckbox.checked) {
+        const imageData = croppedCtx.getImageData(0, 0, sourceWidth, sourceHeight);
+        const processedData = preprocessImage(imageData);
+        croppedCtx.putImageData(processedData, 0, 0);
+        
+        // Also show in preview
+        processedCanvas.width = sourceWidth;
+        processedCanvas.height = sourceHeight;
+        processedCtx.putImageData(processedData, 0, 0);
+        previewContainer.classList.remove('hidden');
+      } else {
+        previewContainer.classList.add('hidden');
+      }
+      
+      imageDataUrl = croppedCanvas.toDataURL('image/png');
+      
+      // Hide cropper and show result modal
+      cropperModal.classList.add('hidden');
+      ocrResult.textContent = 'Processing...';
+      confidenceEl.textContent = '';
+      showModal();
+      
+      // Run OCR on cropped image
+      runOCR(imageDataUrl);
+    });
+    
+    function runOCR(imageDataUrl) {
+      Tesseract.recognize(imageDataUrl, 'eng', { 
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            ocrResult.textContent = `Processing... ${Math.round(m.progress * 100)}%`;
+          }
+        },
+        tessedit_pageseg_mode: '6',
+        preserve_interword_spaces: '1',
+      }).then(({ data: { text, confidence } }) => {
+        const correctedText = correctTicketText(text.trim());
+        ocrResult.textContent = correctedText || 'No text detected.';
+        confidenceEl.textContent = `Confidence: ${confidence.toFixed(0)}%`;
+        
+        // Extract and store data
+        extractedData = extractTicketData(correctedText);
+        viewDataBtn.classList.remove('hidden');
+      }).catch(err => {
+        ocrResult.textContent = 'Error: ' + err;
+      });
+    }
+
+    // Access webcam with higher resolution
+    navigator.mediaDevices.getUserMedia({ 
+      video: { 
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        facingMode: 'environment'
+      } 
+    })
+      .then(stream => video.srcObject = stream)
+      .catch(err => alert('Camera error: ' + err));
+
+    // Image preprocessing
+    function preprocessImage(imageData) {
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        const contrast = 1.5;
+        const factor = (259 * (contrast * 100 + 255)) / (255 * (259 - contrast * 100));
+        let enhanced = factor * (gray - 128) + 128;
+        const binarized = enhanced > 128 ? 255 : 0;
+        data[i] = data[i + 1] = data[i + 2] = binarized;
+      }
+      return imageData;
+    }
+
+    // Show/hide modal
+    function showModal() {
+      resultModal.classList.remove('hidden');
+    }
+    
+    function hideModal() {
+      resultModal.classList.add('hidden');
+    }
+
+    // Dalada Maligawa ticket text correction
+    function correctTicketText(text) {
+      const corrections = [
+        // Field names - common OCR mistakes
+        [/\bDAT[E3]\b/gi, 'DATE'],
+        [/\bT[1I!l]N[E3]\b/gi, 'TIME'],  // TINE -> TIME
+        [/\bT[1I!l]M[E3]\b/gi, 'TIME'],
+        [/\bTIME?\b/gi, 'TIME'],
+        [/\bT[E3]RM[1I!l]NAL\s*[\[\(]?[1I!l]?[D0O]\]?\b/gi, 'TERMINAL ID'],  // TERMINAL [D -> TERMINAL ID
+        [/\bTERMINAL\s*[\[\(\{]?[1I!liD0O]+[\]\)\}]?\s*:/gi, 'TERMINAL ID :'],
+        [/\bL[O0]CAT[1I!l][O0]N\b/gi, 'LOCATION'],
+        [/\bN[O0][.,]?\s*T[1I!l]CK[E3]TS?\b/gi, 'NO. TICKETS'],
+        [/\bT[O0]TAL\s*AM[O0]UNT\b/gi, 'TOTAL AMOUNT'],
+        [/\bTRAC[E3]\s*N[O0]\b/gi, 'TRACE NO'],
+        [/\bR[E3]F+[E3]R+[E3]NC[E3]\s*N[O0]\b/gi, 'REFFERENCE NO'],
+        [/\bR[E3]F[.,]?\s*N[O0]\b/gi, 'REFFERENCE NO'],
+        [/\bT[1I!l]CK[E3]T\s*AM[O0]UNT\s*P\/?P\b/gi, 'TICKET AMOUNT P/P'],
+        [/[#H]\s*T[1I!l]CK[E3]TS?\b/gi, '#TICKETS'],
+        
+        // Location values
+        [/\bMa[1I!l]n\s*[E3]ntranc[e3]\b/gi, 'Main Entrance'],
+        
+        // Temple name corrections
+        [/\bSR[1I!l]\s*DALADA\s*MAL[1I!l]?GAWA\b/gi, 'SRI DALADA MALIGAWA'],
+        [/\bDALADA\s*MAL[1I!l]?GAWA\b/gi, 'DALADA MALIGAWA'],
+        [/\bT[E3]MPL[E3]\s*[O0]F\s*TH[E3]\s*T[O0]{2}TH\s*R[E3]L[1I!l]C\b/gi, 'TEMPLE OF THE TOOTH RELIC'],
+        
+        // Common words
+        [/\bKANDY\b/gi, 'KANDY'],
+        [/\bSR[1I!l]\s*LANKA\b/gi, 'SRI LANKA'],
+        [/\bF[O0]R[E3][1I!l]GN[E3]RS\b/gi, 'FOREIGNERS'],
+        [/\bP[E3]RS[O0]N\b/gi, 'PERSON'],
+        [/\b[O0]NLY\b/gi, 'ONLY'],
+        [/\b[E3]NTRANC[E3]\b/gi, 'ENTRANCE'],
+        [/\bT[1I!l]CK[E3]T\b/gi, 'TICKET'],
+        [/\bBALANC[E3]\b/gi, 'BALANCE'],
+        [/\bT[O0]TAL\s*D[E3]P\b/gi, 'TOTAL DEP'],
+        
+        // Fix common number substitutions in field context
+        [/\b[O0]1\b/g, '01'],
+        [/\bLKR\b/gi, 'LKR'],
+        [/\bHRS\b/gi, 'HRS'],
+        
+        // Clean up artifacts
+        [/@ent/gi, ''],
+        [/\(\?\}[0-9]*\s*['"]?\s*A\s*tbl%/gi, ''],
+        [/<"\/£'>~,,\s*\d*/gi, ''],
+        [/%\s*EE&\s*\d*/gi, ''],
+        [/<\s*ARX\s*=\s*i/gi, ''],
+        [/Y,\s*=/gi, ''],
+        [/T\s*mancrtt/gi, ''],
+        [/\[=\];?/g, ''],
+        [/\[\s*\|\s*\]/g, ''],
+      ];
+
+      let corrected = text;
+      for (const [pattern, replacement] of corrections) {
+        corrected = corrected.replace(pattern, replacement);
+      }
+      
+      // Clean up multiple spaces and blank lines
+      corrected = corrected.replace(/[ \t]+/g, ' ');
+      corrected = corrected.replace(/\n\s*\n\s*\n/g, '\n\n');
+      
+      return corrected.trim();
+    }
+
+    // Extract ticket data from OCR text
+    function extractTicketData(text) {
+      const data = {
+        'DATE': '',
+        'TIME': '',
+        'TERMINAL ID': '',
+        'LOCATION': '',
+        'NO. TICKETS': '',
+        'TOTAL AMOUNT': '',
+        'TRACE NO': '',
+        'REFFERENCE NO': ''
+      };
+
+      // Extract DATE (format: DATE :19-DEC-2025 or DATE:19-DEC-2025)
+      // Handle OCR errors like extra characters, quotes: DATE '19-DEC-2025
+      const dateMatch = text.match(/DATE\s*[:\s'"\`]+\s*(\d{1,2}[-\/][A-Z]{3}[-\/]\d{4})/i);
+      if (dateMatch) {
+        data['DATE'] = dateMatch[1];
+      }
+
+// Extract TIME - handle various OCR errors
+      // Formats: TIME :14:52 HRS, TIME"14:52, TIME 14.52, TINE 14:52, TIME 1452 HRS
+      let timeMatch = text.match(/T[I1!l]M?N?E\s*[:\s"'\`]*\s*([\d]{1,2})[:\.\s]([\d]{2})\s*HRS?/i);
+      if (timeMatch) {
+        data['TIME'] = timeMatch[1].padStart(2, '0') + ':' + timeMatch[2] + ' HRS';
+      } else {
+        // Try pattern for 4-digit time without separator (e.g., 1452 HRS)
+        const timeMatch2 = text.match(/T[I1!l]M?N?E\s*[:\s"'\`]*\s*([\d]{2})([\d]{2})\s*HRS?/i);
+        if (timeMatch2) {
+          let hours = parseInt(timeMatch2[1]);
+          data['TIME'] = hours.toString().padStart(2, '0') + ':' + timeMatch2[2] + ' HRS';
+        }
+      }
+
+      // Extract TERMINAL ID (format: TERMINAL ID :T0003)
+      // Handle: TERMINAL [D :T0003, TERMINAL ID:T0003, TERMINAL ID :TO00O3, etc.
+      let terminalMatch = text.match(/TERMINAL\s*[\[\(\{]?[I1!lD]*[\]\)\}]?\s*[:\s]+[:\s']*(T[\dOoQqCc]{3,5})/i);
+      if (!terminalMatch) {
+        // Try finding T followed by digits/O anywhere after TERMINAL
+        terminalMatch = text.match(/TERMINAL[^T]{0,15}(T[0OoQqCc\d]{3,5})/i);
+      }
+      if (!terminalMatch) {
+        // Try standalone T0003 pattern after colon
+        terminalMatch = text.match(/:(T[0OoQqCc\d]{3,5})\b/i);
+      }
+      
+      if (terminalMatch) {
+        // Replace common OCR errors: O, o, Q, q, C, c -> 0
+        let terminalId = terminalMatch[1].toUpperCase().replace(/[OQC]/gi, '0');
+        // terminalId now looks like T00003 (from TO00O3) - we need T0003
+        // Remove extra zeros: keep T + exactly 4 digits
+        const digits = terminalId.substring(1); // Remove the T
+        // Take the last 4 digits (or pad with zeros if less)
+        const cleanDigits = digits.slice(-4).padStart(4, '0');
+        terminalId = 'T' + cleanDigits;
+        // Validate format T followed by digits
+        if (/^T\d{3,4}$/.test(terminalId)) {
+          data['TERMINAL ID'] = terminalId;
+        } else {
+          data['TERMINAL ID'] = 'RESCAN NEEDED';
+        }
+      } else {
+        data['TERMINAL ID'] = 'RESCAN NEEDED';
+      }
+
+      // Extract LOCATION (format: LOCATION :Main Entrance)
+      const locationMatch = text.match(/LOCATION\s*[:\s]+[:\s]*([A-Za-z\s]+?)(?=\n|NO\.|$)/i);
+      if (locationMatch) data['LOCATION'] = locationMatch[1].trim();
+
+      // Extract NO. TICKETS (format: NO. TICKETS :01)
+      // Handle: NO. TICKETS 'Q1, NO. TICKETS :01, NO. TICKETS'01
+      let ticketsMatch = text.match(/NO\.?\s*TICKETS?\s*[:\s'"\`]*[:\s'"]*([OoQq\d]+)/i);
+      if (ticketsMatch) {
+        // Replace O, Q with 0
+        let tickets = ticketsMatch[1].replace(/[OoQq]/g, '0');
+        // Remove leading zeros but keep at least one digit
+        tickets = tickets.replace(/^0+/, '') || '0';
+        data['NO. TICKETS'] = tickets.padStart(2, '0');
+      }
+
+      // Extract TOTAL AMOUNT - look for first TOTAL AMOUNT with LKR value
+      // Handle: TOTAL AMOUNT: LKR 1,500, 00 or 1,500.00 or 1.500. 00
+      let totalMatch = text.match(/TOTAL\s*AMOUNT\s*[:\s]+[:\s]*(?:LKR\s*)?([\d][,\.\d\s]*[\d]{2})/i);
+      if (totalMatch) {
+        // Clean up the amount: remove spaces, normalize separators
+        let amount = totalMatch[1].replace(/\s+/g, '');
+        // Handle formats like 1,500,00 or 1.500.00 -> 1,500.00
+        // If there are multiple commas or dots, assume last one is decimal
+        const parts = amount.split(/[,\.]/); 
+        if (parts.length >= 2) {
+          const lastPart = parts.pop();
+          const wholePart = parts.join(',');
+          amount = wholePart + '.' + lastPart;
+        }
+        data['TOTAL AMOUNT'] = 'LKR ' + amount;
+      } else {
+        // Try finding amount after LKR
+        const totalMatch2 = text.match(/TOTAL\s*AMOUNT[^\d]*(\d[,\.\d\s]+)/i);
+        if (totalMatch2) {
+          let amount = totalMatch2[1].replace(/\s+/g, '').replace(/,+$/, '').replace(/\.+$/, '');
+          data['TOTAL AMOUNT'] = 'LKR ' + amount;
+        }
+      }
+
+      // Extract TRACE NO (format: TRACE NO :25121914520303)
+      const traceMatch = text.match(/TRACE\s*NO\s*[:\s'"\`]+[:\s']*(\d+)/i);
+      if (traceMatch) data['TRACE NO'] = traceMatch[1];
+
+      // Extract REFERENCE NO (format: REFERENCE NO:T000325121914520303129724)
+      // Handle: REFFERENCE NO'T0003..., REFFERENCE NO:T0003...
+      const refMatch = text.match(/REF+E?R+E?NCE?\s*NO\s*[:\s'"\`]+[:\s'"]*([A-Z0-9]+)/i);
+      if (refMatch) data['REFFERENCE NO'] = refMatch[1];
+
+      return data;
+    }
+
+    // Display extracted data in bill template
+    function displayDataModal(data) {
+      // Helper function to format value or show placeholder
+      const formatValue = (value, placeholder = '--') => {
+        if (!value || value === 'RESCAN NEEDED') return placeholder;
+        return value;
+      };
+      
+      // Helper to extract numeric amount from string like "LKR 1,500.00"
+      const extractAmount = (amountStr) => {
+        if (!amountStr) return '0.00';
+        const match = amountStr.match(/([\d,\.]+)/);
+        return match ? match[1] : '0.00';
+      };
+      
+      // Populate bill template fields
+      document.getElementById('billDate').textContent = formatValue(data['DATE']);
+      document.getElementById('billTime').textContent = formatValue(data['TIME']);
+      document.getElementById('billTerminal').textContent = formatValue(data['TERMINAL ID']);
+      document.getElementById('billLocation').textContent = formatValue(data['LOCATION']);
+      document.getElementById('billTickets').textContent = formatValue(data['NO. TICKETS']);
+      
+      // Amount fields
+      const totalAmount = formatValue(data['TOTAL AMOUNT'], 'LKR 0.00');
+      const amountNum = extractAmount(totalAmount);
+      document.getElementById('billAmount').textContent = totalAmount;
+      document.getElementById('billDep').textContent = amountNum;
+      
+      // Trace and Reference
+      document.getElementById('billTrace').textContent = formatValue(data['TRACE NO']);
+      document.getElementById('billRef').textContent = formatValue(data['REFFERENCE NO']);
+      
+      // Summary table
+      const ticketCount = parseInt(data['NO. TICKETS']) || 1;
+      const totalAmountNum = parseFloat(amountNum.replace(/,/g, '')) || 0;
+      const amountPerPerson = ticketCount > 0 ? (totalAmountNum / ticketCount).toFixed(2) : '0.00';
+      
+      document.getElementById('billAmountPP').textContent = amountPerPerson + ' LKR';
+      document.getElementById('billTicketCount').textContent = ticketCount.toString().padStart(2, '0');
+      document.getElementById('billTotalAmount').textContent = amountNum + ' LKR';
+      
+      dataModal.classList.remove('hidden');
+    }
+
+    // Capture and show cropper
+    captureBtn.addEventListener('click', () => {
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Show cropper with captured image
+      const imageDataUrl = canvas.toDataURL('image/png');
+      showCropper(imageDataUrl);
+    });
+
+    // Modal controls
+    closeModalBtn.addEventListener('click', hideModal);
+    scanAgainBtn.addEventListener('click', hideModal);
+    
+    // Data modal controls
+    viewDataBtn.addEventListener('click', () => {
+      displayDataModal(extractedData);
+    });
+    
+    closeDataModal.addEventListener('click', () => {
+      dataModal.classList.add('hidden');
+    });
+    
+    closeDataModalBtn.addEventListener('click', () => {
+      dataModal.classList.add('hidden');
+    });
+    
+    copyDataBtn.addEventListener('click', () => {
+      const dataText = Object.entries(extractedData)
+        .map(([key, value]) => `${key}: ${value || 'N/A'}`)
+        .join('\n');
+      navigator.clipboard.writeText(dataText).then(() => {
+        copyDataBtn.textContent = 'Copied!';
+        setTimeout(() => copyDataBtn.textContent = 'Copy All Data', 2000);
+      });
+    });
+    
+    copyTextBtn.addEventListener('click', () => {
+      const text = ocrResult.textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        copyTextBtn.textContent = 'Copied!';
+        setTimeout(() => copyTextBtn.textContent = 'Copy Text', 2000);
+      });
+    });
+  </script>
+</body>
+</html>
