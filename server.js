@@ -1,6 +1,20 @@
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+
+// Get local IP address
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
 
 const options = {
   key: fs.readFileSync('key.pem'),
@@ -49,11 +63,12 @@ const server = https.createServer(options, (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
+  const localIP = getLocalIP();
   console.log('\n🔒 HTTPS Server running!\n');
   console.log(`   Local:   https://localhost:${PORT}`);
-  console.log(`   Network: https://192.168.8.112:${PORT}`);
+  console.log(`   Network: https://${localIP}:${PORT}`);
   console.log('\n📱 To access from mobile:');
-  console.log(`   1. Open: https://192.168.8.112:${PORT}`);
+  console.log(`   1. Open: https://${localIP}:${PORT}`);
   console.log('   2. Accept the security warning (self-signed cert)');
   console.log('   3. Allow camera permissions\n');
 });
