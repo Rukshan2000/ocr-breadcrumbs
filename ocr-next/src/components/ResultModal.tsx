@@ -1,4 +1,8 @@
-import { TicketData } from '@/utils/ocr';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { TicketData, convertToApiPayload } from '@/utils/ocr';
+import { createTicket, testApiConnection } from '@/lib/api';
 
 interface ResultModalProps {
   isOpen: boolean;
@@ -21,10 +25,71 @@ export default function ResultModal({
   previewCanvasRef,
   showPreview,
 }: ResultModalProps) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{
+    type: 'success' | 'error' | null;
+    message: string;
+  }>({ type: null, message: '' });
+  const [apiStatus, setApiStatus] = useState<'checking' | 'connected' | 'failed'>('checking');
+
+  // Test API connection when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      testApiConnection()
+        .then((connected) => {
+          setApiStatus(connected ? 'connected' : 'failed');
+          if (!connected) {
+            console.warn('⚠️ Backend API may not be available');
+          }
+        })
+        .catch((err) => {
+          setApiStatus('failed');
+          console.error('API test error:', err);
+        });
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleCopyText = async () => {
     await navigator.clipboard.writeText(ocrText);
+  };
+
+  const handleSaveTicket = async () => {
+    if (!extractedData) {
+      setSaveStatus({ type: 'error', message: 'No extracted data to save' });
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveStatus({ type: null, message: '' });
+
+    try {
+      // Convert extracted OCR data to API format
+      const payload = convertToApiPayload(extractedData, ocrText, confidence);
+      
+      console.log('Payload to send:', payload);
+      console.log('API Base URL:', process.env.NEXT_PUBLIC_API_BASE_URL);
+
+      // Send to backend API
+      await createTicket(payload);
+
+      setSaveStatus({
+        type: 'success',
+        message: `✓ Ticket saved successfully (Trace: ${payload.trace_no})`,
+      });
+
+      // Auto-close after 2 seconds on success
+      setTimeout(() => {
+        onClose();
+      }, 2000);
+    } catch (error) {
+      console.error('Full error object:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save ticket';
+      setSaveStatus({ type: 'error', message: `✗ ${errorMessage}` });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -72,22 +137,56 @@ export default function ResultModal({
           <div className="text-gray-100 whitespace-pre-wrap leading-relaxed text-lg">
             {ocrText}
           </div>
+
+          {/* Status Message */}
+          {saveStatus.type && (
+            <div
+              className={`mt-4 p-3 rounded-lg text-sm font-medium ${
+                saveStatus.type === 'success'
+                  ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+                  : 'bg-red-500/20 text-red-300 border border-red-500/30'
+              }`}
+            >
+              {saveStatus.message}
+            </div>
+          )}
         </div>
 
         {/* Modal Actions */}
-        <div className="p-4 border-t border-gray-800 flex gap-3">
+        <div className="p-4 border-t border-gray-800 flex gap-3 flex-col">
           <button
-            onClick={handleCopyText}
-            className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors"
+            onClick={handleSaveTicket}
+            disabled={isSaving || !extractedData}
+            className="w-full py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
           >
-            Copy Text
+            {isSaving ? (
+              <>
+                <div className="w-4 h-4 border-2 border-purple-300 border-t-transparent rounded-full animate-spin"></div>
+                Saving...
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Save to Database
+              </>
+            )}
           </button>
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-medium transition-colors"
-          >
-            Scan Again
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleCopyText}
+              className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors"
+            >
+              Copy Text
+            </button>
+            <button
+              onClick={onClose}
+              className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-medium transition-colors"
+            >
+              Scan Again
+            </button>
+          </div>
         </div>
       </div>
     </div>

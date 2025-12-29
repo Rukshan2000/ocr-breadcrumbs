@@ -161,7 +161,7 @@ PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
       )}
 
       {/* Desktop Install Prompt Notification */}
-      {!isAndroid && !isIOS && (
+      {/* {!isAndroid && !isIOS && (
         <div className="fixed bottom-20 left-0 right-0 bg-gray-800 border-t border-gray-700 p-3 shadow-lg z-50">
           <div className="max-w-2xl mx-auto text-center">
             <p className="text-gray-300 text-xs">
@@ -169,7 +169,7 @@ PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
             </p>
           </div>
         </div>
-      )}
+      )} */}
     </>
   );
 }

@@ -185,3 +185,84 @@ export function extractTicketData(text: string): TicketData {
 
   return data;
 }
+
+/**
+ * Convert extracted OCR data to API payload format
+ * Transforms TicketData (OCR extracted) to TicketPayload (API required format)
+ */
+export function convertToApiPayload(
+  extractedData: TicketData,
+  ocrText: string,
+  confidence: number | null
+) {
+  // Helper function to parse date
+  const parseDate = (dateStr: string): string => {
+    if (!dateStr) return new Date().toISOString().split('T')[0];
+    // Handle formats like "29-DEC-2024"
+    const parts = dateStr.split(/[-\/]/);
+    if (parts.length === 3) {
+      const monthMap: { [key: string]: string } = {
+        'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04',
+        'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
+        'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'
+      };
+      const month = monthMap[parts[1].toUpperCase()] || '01';
+      const day = parts[0].padStart(2, '0');
+      const year = parts[2];
+      return `${year}-${month}-${day}`;
+    }
+    return new Date().toISOString().split('T')[0];
+  };
+
+  // Helper function to parse time
+  const parseTime = (timeStr: string): string => {
+    if (!timeStr) return '00:00';
+    // Handle formats like "14:30 HRS"
+    const match = timeStr.match(/(\d{1,2}):(\d{2})/);
+    if (match) {
+      return `${match[1].padStart(2, '0')}:${match[2]}`;
+    }
+    return '00:00';
+  };
+
+  // Helper function to extract amount from string
+  const parseAmount = (amountStr: string): number => {
+    if (!amountStr) return 0;
+    // Remove "LKR" and extract numbers
+    const match = amountStr.match(/[\d,]+\.?\d{0,2}/);
+    if (match) {
+      return parseFloat(match[0].replace(/,/g, ''));
+    }
+    return 0;
+  };
+
+  // Helper function to parse number
+  const parseNumber = (numStr: string): number => {
+    if (!numStr) return 0;
+    const match = numStr.match(/\d+/);
+    return match ? parseInt(match[0]) : 0;
+  };
+
+  // Generate unique trace and reference numbers if not found
+  const timestamp = Date.now();
+  const traceNo = extractedData['TRACE NO'];
+  const referenceNo = extractedData['REFFERENCE NO'] ;
+  const totalAmount = parseAmount(extractedData['TOTAL AMOUNT']);
+  const numTickets = parseNumber(extractedData['NO. TICKETS']) ;
+
+  return {
+    date: parseDate(extractedData['DATE']),
+    time: parseTime(extractedData['TIME']),
+    terminal_id: extractedData['TERMINAL ID'] || 'UNKNOWN',
+    location: extractedData['LOCATION'] || 'Unknown',
+    no_tickets: numTickets,
+    total_amount: totalAmount.toFixed(2),
+    trace_no: traceNo,
+    reference_no: referenceNo,
+    ticket_amount_pp: (totalAmount / numTickets).toFixed(2),
+    scanned_data: {
+      extracted_text: ocrText,
+      confidence: confidence || 0,
+    },
+  };
+}

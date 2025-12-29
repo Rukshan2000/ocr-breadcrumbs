@@ -21,6 +21,8 @@ interface CropperModalProps {
   onClose: () => void;
   imageDataUrl: string;
   onConfirm: (croppedDataUrl: string) => void;
+  isProcessing?: boolean;
+  processingProgress?: number;
 }
 
 export default function CropperModal({
@@ -28,6 +30,8 @@ export default function CropperModal({
   onClose,
   imageDataUrl,
   onConfirm,
+  isProcessing = false,
+  processingProgress = 0,
 }: CropperModalProps) {
   const cropperContainerRef = useRef<HTMLDivElement>(null);
   const cropperCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -255,7 +259,7 @@ export default function CropperModal({
   };
 
   const handleConfirm = () => {
-    if (!cropState.originalImage || !croppedCanvasRef.current) return;
+    if (!cropState.originalImage || !croppedCanvasRef.current || isProcessing) return;
 
     const scaleBack = 1 / cropState.imageScale;
     const sourceX = (cropState.cropX - cropState.offsetX) * scaleBack;
@@ -327,19 +331,46 @@ export default function CropperModal({
         </div>
 
         {/* Cropper Actions */}
-        <div className="p-4 border-t border-gray-800 bg-black/80 flex gap-3">
-          <button
-            onClick={handleReset}
-            className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-medium transition-colors"
-          >
-            Reset
-          </button>
-          <button
-            onClick={handleConfirm}
-            className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors"
-          >
-            Scan Selected Area
-          </button>
+        <div className="p-4 border-t border-gray-800 bg-black/80">
+          {/* Processing Progress Bar */}
+          {isProcessing && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-lg font-medium">Processing...</span>
+                <span className="text-xl font-bold text-blue-400">{processingProgress}%</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-lg h-4 overflow-hidden shadow-lg">
+                <div
+                  className="bg-gradient-to-r from-blue-500 to-blue-600 h-full transition-all duration-300 shadow-inner"
+                  style={{ width: `${processingProgress}%` }}
+                />
+              </div>
+              <p className="text-center text-sm text-gray-400 mt-2">Scanning and extracting text...</p>
+            </div>
+          )}
+          <div className="flex gap-3">
+            <button
+              onClick={handleReset}
+              disabled={isProcessing}
+              className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors"
+            >
+              Reset
+            </button>
+            <button
+              onClick={handleConfirm}
+              disabled={isProcessing}
+              className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              {isProcessing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-blue-300 border-t-transparent rounded-full animate-spin"></div>
+                  Processing...
+                </>
+              ) : (
+                'Scan Selected Area'
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import Tesseract from 'tesseract.js';
 import AlignmentGuide from './AlignmentGuide';
-import ResultModal from './ResultModal';
 import DataModal from './DataModal';
 import CropperModal from './CropperModal';
 import { preprocessImage, correctTicketText, extractTicketData, TicketData } from '@/utils/ocr';
@@ -15,7 +14,6 @@ export default function OCRScanner() {
 
   const [showGuide, setShowGuide] = useState(true);
   const [preprocess, setPreprocess] = useState(true);
-  const [showResultModal, setShowResultModal] = useState(false);
   const [showDataModal, setShowDataModal] = useState(false);
   const [showCropperModal, setShowCropperModal] = useState(false);
   const [capturedImageUrl, setCapturedImageUrl] = useState('');
@@ -24,6 +22,8 @@ export default function OCRScanner() {
   const [extractedData, setExtractedData] = useState<TicketData | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
 
   // Initialize camera
   useEffect(() => {
@@ -74,11 +74,11 @@ export default function OCRScanner() {
 
   const handleCropConfirm = useCallback(
     async (croppedDataUrl: string) => {
-      setShowCropperModal(false);
+      setIsOcrProcessing(true);
+      setProcessingProgress(0);
       setOcrText('Processing...');
       setConfidence(null);
       setExtractedData(null);
-      setShowResultModal(true);
 
       // Apply preprocessing if enabled
       let processedDataUrl = croppedDataUrl;
@@ -116,7 +116,9 @@ export default function OCRScanner() {
       const result = await Tesseract.recognize(imageDataUrl, 'eng', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
-            setOcrText(`Processing... ${Math.round(m.progress * 100)}%`);
+            const progress = Math.round(m.progress * 100);
+            setProcessingProgress(progress);
+            setOcrText(`Processing... ${progress}%`);
           }
         },
       });
@@ -127,17 +129,30 @@ export default function OCRScanner() {
 
       const data = extractTicketData(correctedText);
       setExtractedData(data);
+      setProcessingProgress(100);
+
+      // Close cropper and show data modal after processing is complete
+      setTimeout(() => {
+        setIsOcrProcessing(false);
+        setShowCropperModal(false);
+        setShowDataModal(true);
+      }, 500);
     } catch (err) {
       setOcrText('Error: ' + (err as Error).message);
+      setProcessingProgress(0);
+      setIsOcrProcessing(false);
     }
   };
 
-  const handleCloseResultModal = () => {
-    setShowResultModal(false);
+  const handleCloseDataModal = () => {
+    setShowDataModal(false);
+    setShowCropperModal(true);
+    setIsOcrProcessing(false);
     setOcrText('Processing...');
     setConfidence(null);
     setExtractedData(null);
     setShowPreview(false);
+    setProcessingProgress(0);
   };
 
   if (cameraError) {
@@ -213,25 +228,18 @@ export default function OCRScanner() {
         onClose={() => setShowCropperModal(false)}
         imageDataUrl={capturedImageUrl}
         onConfirm={handleCropConfirm}
-      />
-
-      {/* Result Modal */}
-      <ResultModal
-        isOpen={showResultModal}
-        onClose={handleCloseResultModal}
-        ocrText={ocrText}
-        confidence={confidence}
-        onViewData={() => setShowDataModal(true)}
-        extractedData={extractedData}
-        previewCanvasRef={previewCanvasRef}
-        showPreview={showPreview}
+        isProcessing={isOcrProcessing}
+        processingProgress={processingProgress}
       />
 
       {/* Data Modal */}
       <DataModal
         isOpen={showDataModal}
-        onClose={() => setShowDataModal(false)}
+        onClose={handleCloseDataModal}
         data={extractedData}
+        processingProgress={processingProgress}
+        isProcessing={processingProgress < 100 && processingProgress > 0}
+        onScanAgain={handleCloseDataModal}
       />
 
       {/* Hidden Canvases */}
