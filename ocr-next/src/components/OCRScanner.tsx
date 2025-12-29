@@ -146,13 +146,18 @@ export default function OCRScanner() {
 
   const handleCloseDataModal = () => {
     setShowDataModal(false);
-    setShowCropperModal(true);
+    setShowCropperModal(false);
     setIsOcrProcessing(false);
     setOcrText('Processing...');
     setConfidence(null);
     setExtractedData(null);
     setShowPreview(false);
     setProcessingProgress(0);
+  };
+
+  const handleScanAgain = () => {
+    // Close data modal and cropper modal to return to camera view
+    handleCloseDataModal();
   };
 
   if (cameraError) {
@@ -239,7 +244,7 @@ export default function OCRScanner() {
         data={extractedData}
         processingProgress={processingProgress}
         isProcessing={processingProgress < 100 && processingProgress > 0}
-        onScanAgain={handleCloseDataModal}
+        onScanAgain={handleScanAgain}
       />
 
       {/* Hidden Canvases */}

@@ -350,9 +350,9 @@ export default function CropperModal({
           )}
           <div className="flex gap-3">
             <button
-              onClick={handleReset}
+              onClick={onClose}
               disabled={isProcessing}
-              className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors"
+              className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors"
             >
               Reset
             </button>
