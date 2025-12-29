@@ -138,7 +138,7 @@ PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
       )}
 
       {/* iOS Manual Install Instructions */}
-      {isIOS && !isStandalone && (
+      {isIOS && !isStandalone && showPrompt && (
         <div className="fixed bottom-20 left-0 right-0 bg-gradient-to-r from-purple-600 to-purple-700 border-t border-purple-800 p-4 shadow-2xl z-50">
           <div className="max-w-2xl mx-auto">
             <h3 className="text-white font-semibold text-sm mb-3">
