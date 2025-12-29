@@ -6,12 +6,13 @@ interface DataModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: TicketData | null;
+  capturedImageUrl?: string;
   processingProgress?: number;
   isProcessing?: boolean;
   onScanAgain?: () => void;
 }
 
-export default function DataModal({ isOpen, onClose, data, processingProgress = 0, isProcessing = false, onScanAgain }: DataModalProps) {
+export default function DataModal({ isOpen, onClose, data, capturedImageUrl = '', processingProgress = 0, isProcessing = false, onScanAgain }: DataModalProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{
     type: 'success' | 'error' | null;
@@ -85,23 +86,72 @@ export default function DataModal({ isOpen, onClose, data, processingProgress = 
       // Convert extracted OCR data to API format
       const payload = convertToApiPayload(data, '', confidence);
       
-      console.log('Payload to send:', payload);
+      console.log('🔵 Payload to send:', payload);
       console.log('API Base URL:', process.env.NEXT_PUBLIC_API_BASE_URL);
+      console.log('Image available:', !!capturedImageUrl);
 
-      // Send to backend API
-      await createTicket(payload);
+      // If image is available, upload with image to S3
+      if (capturedImageUrl) {
+        console.log('📸 Uploading ticket with image...');
+        
+        // Convert Data URL to Blob
+        const imageBlob = await fetch(capturedImageUrl).then(r => r.blob());
+        console.log('📦 Image blob size:', (imageBlob.size / 1024).toFixed(2), 'KB');
+        console.log('📦 Image MIME type:', imageBlob.type);
+        
+        // Prepare FormData with multipart encoding
+        const formData = new FormData();
+        formData.append('image', imageBlob, 'ticket.png');
+        formData.append('data', JSON.stringify(payload));
+        
+        console.log('📤 Sending multipart request to /with-image');
+        
+        // Send to backend API with image
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/with-image`, {
+          method: 'POST',
+          body: formData,
+          // NOTE: Do NOT set Content-Type header - browser will set it automatically
+          // with the correct multipart/form-data boundary
+          credentials: 'include',
+        });
 
-      setSaveStatus({
-        type: 'success',
-        message: `✓ Ticket saved successfully (Trace: ${payload.trace_no})`,
-      });
+        console.log('📊 Response status:', response.status);
 
-      // Auto-close after 2 seconds on success
-      setTimeout(() => {
-        onClose();
-      }, 2000);
+        const result = await response.json();
+        console.log('✅ Response data:', result);
+
+        if (!response.ok) {
+          const errorMsg = result.error || result.message || `HTTP ${response.status}`;
+          throw new Error(errorMsg);
+        }
+
+        // Success - extract trace number from response
+        const traceNo = result.data?.trace_no || payload.trace_no;
+        setSaveStatus({
+          type: 'success',
+          message: `✓ Ticket saved successfully (Trace: ${traceNo})`,
+        });
+
+        // Auto-close after 2 seconds on success
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      } else {
+        // Fallback: send without image if not available
+        console.log('⚠️ No image available, saving ticket data only...');
+        await createTicket(payload);
+        
+        setSaveStatus({
+          type: 'success',
+          message: `✓ Ticket saved successfully (Trace: ${payload.trace_no})`,
+        });
+
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      }
     } catch (error) {
-      console.error('Full error object:', error);
+      console.error('❌ Full error object:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to save ticket';
       setSaveStatus({ type: 'error', message: `✗ ${errorMessage}` });
     } finally {

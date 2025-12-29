@@ -114,6 +114,56 @@ export async function createTicket(ticketData: TicketPayload): Promise<TicketRes
 }
 
 /**
+ * Create a new ticket with image upload to S3
+ * Sends FormData containing binary image and ticket metadata
+ * @param formData - FormData with 'image' (File) and 'data' (JSON string) fields
+ */
+export async function createTicketWithImage(formData: FormData): Promise<TicketResponse> {
+  try {
+    console.log('🔵 Uploading ticket with image to:', `${API_BASE_URL}/with-image`);
+    console.log('📦 FormData prepared');
+    
+    // Get image size for logging
+    const imageFile = formData.get('image');
+    if (imageFile instanceof File) {
+      console.log('📸 Image size:', imageFile.size, 'bytes');
+      console.log('📸 Image type:', imageFile.type);
+    }
+
+    const response = await fetch(`${API_BASE_URL}/with-image`, {
+      method: 'POST',
+      // NOTE: Don't set Content-Type header - browser will set it with boundary
+      body: formData,
+      credentials: 'include',
+    });
+
+    console.log('📊 Response status:', response.status);
+    console.log('✓ Response ok:', response.ok);
+
+    const result = await response.json();
+    console.log('✅ Response data:', result);
+
+    if (!response.ok) {
+      const errorMsg = result.error || result.message || `HTTP ${response.status}: Failed to upload ticket with image`;
+      throw new Error(errorMsg);
+    }
+
+    if (!result.data) {
+      throw new Error('No data returned from server');
+    }
+
+    console.log('✅ Image uploaded successfully to S3');
+    console.log('📁 S3 Path:', result.data.ticket_img_path);
+
+    return result.data;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error uploading ticket with image:', errorMsg);
+    throw new Error(`Failed to save ticket with image: ${errorMsg}`);
+  }
+}
+
+/**
  * Get all tickets with pagination
  */
 export async function getAllTickets(
