@@ -31,6 +31,15 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
   // If data hasn't loaded yet, don't render the modal content
   if (!data) return null;
 
+  // Check for missing critical fields
+  const criticalFields = ['DATE', 'TIME', 'TERMINAL ID', 'LOCATION', 'NO. TICKETS', 'TOTAL AMOUNT', 'BALANCE', 'TRACE NO', 'TRACE NO.'];
+  const missingFieldCount = criticalFields.filter(field => {
+    const value = data[field as keyof TicketData];
+    return !value || value === 'RESCAN NEEDED' || value === '--';
+  }).length;
+
+  const hasTooManyMissing = missingFieldCount > 3;
+
   const extractAmount = (amountStr: string) => {
     if (!amountStr) return '0.00';
     const match = amountStr.match(/([\d,\.]+)/);
@@ -179,10 +188,38 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
 
         {/* Bill Template Content */}
         <div className="flex-1 overflow-hidden p-4 flex justify-center">
-          <div
-            className="bg-white text-black w-full max-w-sm rounded-lg shadow-2xl overflow-hidden flex flex-col"
-            style={{ fontFamily: "'Courier New', monospace" }}
-          >
+          {hasTooManyMissing ? (
+            // Show error state when too many fields are missing
+            <div className="bg-white text-black w-full max-w-sm rounded-lg shadow-2xl overflow-hidden flex flex-col items-center justify-center p-8">
+              <div className="text-center">
+                <svg className="w-16 h-16 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Data Quality Issue</h3>
+                <p className="text-gray-600 text-sm mb-4">
+                  {missingFieldCount} critical fields are missing or unclear. Please recapture the ticket for better accuracy.
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-xs text-gray-700">
+                  <p className="font-semibold mb-2">Missing Fields:</p>
+                  <ul className="space-y-1">
+                    {criticalFields
+                      .filter(field => {
+                        const value = data[field as keyof TicketData];
+                        return !value || value === 'RESCAN NEEDED' || value === '--';
+                      })
+                      .map(field => (
+                        <li key={field}>• {field}</li>
+                      ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ) : (
+            // Show normal bill template when data is complete
+            <div
+              className="bg-white text-black w-full max-w-sm rounded-lg shadow-2xl overflow-hidden flex flex-col"
+              style={{ fontFamily: "'Courier New', monospace" }}
+            >
             {/* Header with Logo */}
             <div className="text-center pt-4 pb-2 px-4 flex-shrink-0">
               <div className="w-16 h-16 mx-auto mb-2 border-2 border-gray-400 rounded-full flex items-center justify-center">
@@ -300,7 +337,8 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
                 </table>
               </div>
             </div>
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Data Modal Actions */}
@@ -321,13 +359,21 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
           <div className="flex gap-3">
             <button
               onClick={handleSaveTicket}
-              disabled={isSaving || !data}
+              disabled={isSaving || !data || hasTooManyMissing}
+              title={hasTooManyMissing ? 'Please recapture the ticket - too many missing fields' : ''}
               className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
             >
               {isSaving ? (
                 <>
                   <div className="w-4 h-4 border-2 border-purple-300 border-t-transparent rounded-full animate-spin"></div>
                   Saving...
+                </>
+              ) : hasTooManyMissing ? (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Recapture Required
                 </>
               ) : (
                 <>
