@@ -6,13 +6,14 @@ interface DataModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: TicketData | null;
+  ocrText?: string;
   capturedImageUrl?: string;
   processingProgress?: number;
   isProcessing?: boolean;
   onScanAgain?: () => void;
 }
 
-export default function DataModal({ isOpen, onClose, data, capturedImageUrl = '', processingProgress = 0, isProcessing = false, onScanAgain }: DataModalProps) {
+export default function DataModal({ isOpen, onClose, data, ocrText = '', capturedImageUrl = '', processingProgress = 0, isProcessing = false, onScanAgain }: DataModalProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{
     type: 'success' | 'error' | null;
@@ -84,7 +85,7 @@ export default function DataModal({ isOpen, onClose, data, capturedImageUrl = ''
 
     try {
       // Convert extracted OCR data to API format
-      const payload = convertToApiPayload(data, '', confidence);
+      const payload = convertToApiPayload(data, ocrText, confidence);
       
       console.log('🔵 Payload to send:', payload);
       console.log('API Base URL:', process.env.NEXT_PUBLIC_API_BASE_URL);

@@ -157,20 +157,41 @@ export function extractTicketData(text: string): TicketData {
   }
 
   // Extract TOTAL AMOUNT
-  let totalMatch = text.match(/TOTAL\s*AMOUNT\s*[:\s]+[:\s]*(?:LKR\s*)?([\d][,\.\d\s]*[\d]{2})/i);
+  let totalMatch = text.match(/TOTAL\s*A[UM]*OUNT\s*[:\s]+[:\s]*(?:LKR\s*)?([\d][,\.\d\s]*[\d])/i);
   if (totalMatch) {
-    let amount = totalMatch[1].replace(/\s+/g, '');
-    const parts = amount.split(/[,\.]/);
-    if (parts.length >= 2) {
-      const lastPart = parts.pop();
-      const wholePart = parts.join(',');
-      amount = wholePart + '.' + lastPart;
+    let amount = totalMatch[1].trim();
+    // Handle European format: 1.500. 00 or 1.500,00 or 1,500.00
+    // First, remove all spaces
+    amount = amount.replace(/\s+/g, '');
+    
+    // If there are two separators (thousand and decimal), identify which is which
+    const separatorMatches = Array.from(amount.matchAll(/[,\.]/g));
+    if (separatorMatches.length >= 2) {
+      // Last separator is always the decimal separator
+      const lastSeparatorIndex = amount.lastIndexOf(separatorMatches[separatorMatches.length - 1][0]);
+      const beforeLast = amount.substring(0, lastSeparatorIndex);
+      const afterLast = amount.substring(lastSeparatorIndex + 1);
+      
+      // Remove all thousand separators from before-last part
+      const wholePart = beforeLast.replace(/[,\.]/g, '');
+      amount = wholePart + '.' + afterLast;
+    } else if (separatorMatches.length === 1) {
+      // Single separator - if it has 2+ digits after it, it's decimal; otherwise thousand
+      const lastSep = separatorMatches[0][0];
+      const afterSep = amount.substring(amount.lastIndexOf(lastSep) + 1);
+      if (afterSep.length >= 2) {
+        amount = amount.replace(lastSep, '.');
+      } else {
+        amount = amount.replace(lastSep, '');
+      }
     }
     data['TOTAL AMOUNT'] = 'LKR ' + amount;
   } else {
-    const totalMatch2 = text.match(/TOTAL\s*AMOUNT[^\d]*(\d[,\.\d\s]+)/i);
+    const totalMatch2 = text.match(/TOTAL\s*A[UM]*OUNT[^\d]*(\d[,\.\d\s]+)/i);
     if (totalMatch2) {
-      let amount = totalMatch2[1].replace(/\s+/g, '').replace(/,+$/, '').replace(/\.+$/, '');
+      let amount = totalMatch2[1].replace(/\s+/g, '');
+      // Remove trailing separators
+      amount = amount.replace(/[,\.]+$/, '');
       data['TOTAL AMOUNT'] = 'LKR ' + amount;
     }
   }
@@ -228,12 +249,47 @@ export function convertToApiPayload(
   // Helper function to extract amount from string
   const parseAmount = (amountStr: string): number => {
     if (!amountStr) return 0;
-    // Remove "LKR" and extract numbers
-    const match = amountStr.match(/[\d,]+\.?\d{0,2}/);
-    if (match) {
-      return parseFloat(match[0].replace(/,/g, ''));
+    // Remove "LKR" and extract numbers with proper handling of separators
+    const cleanStr = amountStr.replace(/LKR\s*/i, '').trim();
+    
+    // Handle various formats:
+    // 1500.00 (US format)
+    // 1,500.00 (US format with thousand sep)
+    // 1.500,00 (European format)
+    // 1.500. 00 (OCR with space)
+    
+    // First, normalize by removing spaces
+    let normalized = cleanStr.replace(/\s+/g, '');
+    
+    // Find all separators (commas and periods)
+    const separators = Array.from(normalized.matchAll(/[,\.]/g));
+    
+    if (separators.length === 0) {
+      // No separators, just a number
+      return parseFloat(normalized);
+    } else if (separators.length === 1) {
+      // One separator - determine if it's thousand or decimal
+      const sepIndex = normalized.lastIndexOf(separators[0][0]);
+      const afterSep = normalized.substring(sepIndex + 1);
+      
+      if (afterSep.length === 2) {
+        // Two digits after separator = decimal separator
+        return parseFloat(normalized.replace(separators[0][0], '.'));
+      } else {
+        // Not two digits = thousand separator, remove it
+        return parseFloat(normalized.replace(separators[0][0], ''));
+      }
+    } else {
+      // Multiple separators - last one is decimal, rest are thousand separators
+      const lastSepIndex = normalized.lastIndexOf(separators[separators.length - 1][0]);
+      const beforeLast = normalized.substring(0, lastSepIndex);
+      const afterLast = normalized.substring(lastSepIndex + 1);
+      
+      // Remove all separators from before-last part
+      const wholePart = beforeLast.replace(/[,\.]/g, '');
+      const result = wholePart + '.' + afterLast;
+      return parseFloat(result);
     }
-    return 0;
   };
 
   // Helper function to parse number
@@ -250,6 +306,9 @@ export function convertToApiPayload(
   const totalAmount = parseAmount(extractedData['TOTAL AMOUNT']);
   const numTickets = parseNumber(extractedData['NO. TICKETS']) ;
 
+  // Calculate per-person ticket amount, handling division by zero
+  const ticketAmountPP = numTickets > 0 ? (totalAmount / numTickets).toFixed(2) : '0.00';
+
   return {
     date: parseDate(extractedData['DATE']),
     time: parseTime(extractedData['TIME']),
@@ -259,7 +318,7 @@ export function convertToApiPayload(
     total_amount: totalAmount.toFixed(2),
     trace_no: traceNo,
     reference_no: referenceNo,
-    ticket_amount_pp: (totalAmount / numTickets).toFixed(2),
+    ticket_amount_pp: ticketAmountPP,
     scanned_data: {
       extracted_text: ocrText,
       confidence: confidence || 0,

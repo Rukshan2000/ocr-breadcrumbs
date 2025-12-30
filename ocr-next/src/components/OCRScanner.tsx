@@ -242,6 +242,7 @@ export default function OCRScanner() {
         isOpen={showDataModal}
         onClose={handleCloseDataModal}
         data={extractedData}
+        ocrText={ocrText}
         capturedImageUrl={capturedImageUrl}
         processingProgress={processingProgress}
         isProcessing={processingProgress < 100 && processingProgress > 0}
