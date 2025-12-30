@@ -3,12 +3,9 @@
 import { useState, useEffect } from 'react';
 
 export function InstallPrompt() {
-  const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
-  const [isAndroid, setIsAndroid] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<Event | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<string>('');
 
   // Log that component mounted
   useEffect(() => {
@@ -20,29 +17,12 @@ export function InstallPrompt() {
     const standalone = window.matchMedia('(display-mode: standalone)').matches;
     setIsStandalone(standalone);
 
-    // Check for iOS
-    const iosCheck = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    setIsIOS(iosCheck);
-
-    // Check for Android
-    const androidCheck = /Android/.test(navigator.userAgent);
-    setIsAndroid(androidCheck);
-
-    // Show prompt for Android automatically
-    if (androidCheck && !standalone) {
+    // Show prompt if not already installed
+    if (!standalone) {
       setShowPrompt(true);
     }
 
-    // Debug info
-    const debug = `
-Device: ${iosCheck ? 'iOS' : androidCheck ? 'Android' : 'Desktop'}
-Standalone: ${standalone}
-UserAgent: ${navigator.userAgent}
-PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
-    `.trim();
-    setDebugInfo(debug);
-
-    // Handle beforeinstallprompt event for Android
+    // Handle beforeinstallprompt event
     const handleBeforeInstallPrompt = (e: Event) => {
       console.log('beforeinstallprompt event fired!');
       e.preventDefault();
@@ -52,9 +32,7 @@ PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     
-    // Log that we're listening
     console.log('Install prompt listener attached');
-    console.log('Device info:', { isIOS: iosCheck, isAndroid: androidCheck, standalone });
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -74,22 +52,35 @@ PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
         console.error('Error showing install prompt:', error);
       }
     } else {
-      // Fallback: Show browser's native install UI
-      // On Android, this triggers the system install dialog
-      console.log('Using fallback install method...');
-      
-      // Try to trigger native install through manifest
-      const link = document.createElement('a');
-      link.href = '/manifest.json';
-      link.rel = 'manifest';
-      document.head.appendChild(link);
-      
-      // Show a message to user
-      alert('Tap the menu icon (3 dots) and select "Install app" or "Add to Home Screen"');
-      
-      // Alternative: Try to focus on address bar
-      // Some browsers allow direct install from there
-      window.location.href = window.location.href;
+      // Fallback: Attempt to install PWA programmatically
+      console.log('Installing PWA programmatically...');
+      try {
+        // Check if Web App Manifest is loaded
+        const manifest = document.querySelector('link[rel="manifest"]');
+        if (!manifest) {
+          const link = document.createElement('link');
+          link.rel = 'manifest';
+          link.href = '/manifest.json';
+          document.head.appendChild(link);
+        }
+
+        // Try to use the Web Share API if available
+        if (navigator.share) {
+          await navigator.share({
+            title: 'OCR Scanner',
+            text: 'Install OCR Scanner app',
+            url: window.location.href,
+          });
+          console.log('Share dialog opened');
+          setShowPrompt(false);
+        } else {
+          // Fallback: Direct installation message
+          alert('To install this app:\n\n📱 Android/Chrome:\n1. Tap the menu (three dots)\n2. Tap "Install app"\n\n📲 iOS:\n1. Tap the Share button\n2. Tap "Add to Home Screen"\n\n💻 Desktop:\n1. Look for the install icon in address bar\n2. Or use the browser menu');
+        }
+      } catch (error) {
+        console.error('Error during installation:', error);
+        alert('To install this app:\n\n1. Look for the install icon in your browser address bar\n2. Or tap the menu and select "Install app" / "Add to Home Screen"');
+      }
     }
   };
 
@@ -103,12 +94,12 @@ PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
     return null;
   }
 
-  console.log('📱 Rendering InstallPrompt', { isAndroid, showPrompt, isStandalone });
+  console.log('📱 Rendering InstallPrompt', { showPrompt, isStandalone });
 
   return (
     <>
-      {/* Android Install Prompt - Show if Android detected (with or without beforeinstallprompt event) */}
-      {isAndroid && showPrompt && (
+      {/* Universal Install Prompt */}
+      {showPrompt && (
         <div className="fixed bottom-20 left-0 right-0 bg-gradient-to-r from-blue-600 to-blue-700 border-t border-blue-800 p-4 shadow-2xl z-50">
           <div className="max-w-2xl mx-auto flex items-center justify-between">
             <div className="flex-1">
@@ -116,7 +107,7 @@ PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
                 📱 Install OCR Scanner
               </h3>
               <p className="text-blue-100 text-xs">
-                Add to your home screen for quick access
+                Install this app for quick access and offline support
               </p>
             </div>
             <div className="flex gap-2 ml-4">
@@ -130,46 +121,12 @@ PWA Support: ${typeof navigator.serviceWorker !== 'undefined' ? 'Yes' : 'No'}
                 onClick={handleInstallClick}
                 className="px-4 py-2 bg-white text-blue-600 text-sm rounded-md hover:bg-blue-50 transition-colors font-bold"
               >
-                {deferredPrompt ? 'Install' : 'Install'}
+                Install
               </button>
             </div>
           </div>
         </div>
       )}
-
-      {/* iOS Manual Install Instructions */}
-      {isIOS && !isStandalone && showPrompt && (
-        <div className="fixed bottom-20 left-0 right-0 bg-gradient-to-r from-purple-600 to-purple-700 border-t border-purple-800 p-4 shadow-2xl z-50">
-          <div className="max-w-2xl mx-auto">
-            <h3 className="text-white font-semibold text-sm mb-3">
-              📲 Install OCR Scanner on iOS
-            </h3>
-            <ol className="text-purple-100 text-xs space-y-2 ml-4 list-decimal">
-              <li>Tap the <span className="font-bold">Share</span> button at the bottom</li>
-              <li>Scroll down and tap <span className="font-bold">Add to Home Screen</span></li>
-              <li>Choose a name for the app</li>
-              <li>Tap <span className="font-bold">Add</span> to install</li>
-            </ol>
-            <button
-              onClick={handleDismiss}
-              className="mt-3 w-full px-4 py-2 bg-white text-purple-600 text-sm rounded-md hover:bg-purple-50 transition-colors font-bold"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Desktop Install Prompt Notification */}
-      {/* {!isAndroid && !isIOS && (
-        <div className="fixed bottom-20 left-0 right-0 bg-gray-800 border-t border-gray-700 p-3 shadow-lg z-50">
-          <div className="max-w-2xl mx-auto text-center">
-            <p className="text-gray-300 text-xs">
-              💻 Look for install icon in your browser address bar
-            </p>
-          </div>
-        </div>
-      )} */}
     </>
   );
 }
