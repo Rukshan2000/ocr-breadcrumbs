@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { InstallPrompt } from '@/components/InstallPrompt';
+import { ProtectedRoute } from '@/components/ProtectedRoute';
 
 // Dynamic import to avoid SSR issues with camera/canvas
 const OCRScanner = dynamic(() => import('@/components/OCRScanner'), {
@@ -15,9 +16,11 @@ const OCRScanner = dynamic(() => import('@/components/OCRScanner'), {
 
 export default function Home() {
   return (
-    <>
-      <OCRScanner />
-      <InstallPrompt />
-    </>
+    <ProtectedRoute>
+      <>
+        <OCRScanner />
+        <InstallPrompt />
+      </>
+    </ProtectedRoute>
   );
 }

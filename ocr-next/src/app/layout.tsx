@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
+import { ReduxProvider } from '@/components/ReduxProvider';
+import { TokenInitializer } from '@/components/TokenInitializer';
 
 export const metadata: Metadata = {
   title: 'OCR Scanner',
@@ -41,8 +43,11 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
       <body className="h-full bg-black text-white">
-        {children}
-        <ServiceWorkerRegistration />
+        <ReduxProvider>
+          <TokenInitializer />
+          {children}
+          <ServiceWorkerRegistration />
+        </ReduxProvider>
       </body>
     </html>
   );
