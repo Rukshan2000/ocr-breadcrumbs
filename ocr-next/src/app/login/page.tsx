@@ -88,18 +88,30 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-black px-4">
-      <div className="w-full max-w-md">
+    
+      <div 
+      className="min-h-screen flex items-center justify-center p-4 "
+      style={{
+        backgroundImage: `url(/bg.jpeg)`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundAttachment: 'fixed',
+        backgroundColor: 'rgba(255, 255, 255, 0.5)',
+        backgroundBlendMode: 'overlay',
+      }}
+    >
+      <div className="w-full max-w-md shadow-xl backdrop-blur-md bg-white/10 border border-white/20 rounded-xl">
         {/* Logo/Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">OCR Scanner</h1>
-          <p className="text-gray-400">Sign in to your account</p>
+        <div className="text-center  mt-6 flex flex-col items-center gap-2">
+          <img src="/logo.jpg" alt="OCR Logo" className="h-32 w-auto" />
+          <img src="/text.png" alt="OCR Text" className="h-auto w-auto" />
+          <p className='text-slate-600'>Sign In</p>
         </div>
 
         {/* Login Form */}
         <form
           onSubmit={handleSubmit}
-          className="bg-slate-800 rounded-lg shadow-lg p-8 space-y-6"
+          className=" rounded-lg shadow-2xl p-8 space-y-6 "
         >
           {/* Error Message */}
           {error && (
@@ -110,8 +122,8 @@ export default function LoginPage() {
 
           {/* Email Input */}
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
-              Email Address
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              Email
             </label>
             <input
               type="email"
@@ -119,15 +131,15 @@ export default function LoginPage() {
               name="email"
               value={formData.email}
               onChange={handleInputChange}
-              placeholder="you@example.com"
+              placeholder="admin@example.com"
               disabled={isLoading}
-              className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </div>
 
           {/* Password Input */}
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
               Password
             </label>
             <div className="relative">
@@ -139,13 +151,13 @@ export default function LoginPage() {
                 onChange={handleInputChange}
                 placeholder="••••••••"
                 disabled={isLoading}
-                className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 disabled={isLoading}
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-300 disabled:opacity-50"
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-600 hover:text-gray-800 disabled:opacity-50"
               >
                 {showPassword ? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -165,7 +177,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            className="w-full bg-black hover:bg-gray-800 text-white font-semibold py-2 px-4 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
           >
             {isLoading ? (
               <>
@@ -182,12 +194,7 @@ export default function LoginPage() {
 
         </form>
 
-        {/* Footer */}
-        <div className="text-center mt-8">
-          <p className="text-gray-500 text-xs">
-            © 2025 OCR Scanner. All rights reserved.
-          </p>
-        </div>
+        
       </div>
     </div>
   );
