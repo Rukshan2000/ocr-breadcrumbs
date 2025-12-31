@@ -1,5 +1,6 @@
 import { TicketData, convertToApiPayload } from '@/utils/ocr';
 import { createTicket } from '@/lib/api';
+import { compressImage, formatBytes } from '@/utils/imageCompression';
 import { useState } from 'react';
 
 interface DataModalProps {
@@ -105,13 +106,26 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
         console.log('📸 Uploading ticket with image...');
         
         // Convert Data URL to Blob
-        const imageBlob = await fetch(capturedImageUrl).then(r => r.blob());
-        console.log('📦 Image blob size:', (imageBlob.size / 1024).toFixed(2), 'KB');
+        let imageBlob = await fetch(capturedImageUrl).then(r => r.blob());
+        console.log('📦 Original image size:', formatBytes(imageBlob.size));
         console.log('📦 Image MIME type:', imageBlob.type);
+        
+        // Compress image to 1MB
+        console.log('🔄 Compressing image to 1MB...');
+        const compressedDataUrl = await compressImage(capturedImageUrl, {
+          maxSizeBytes: 1048576, // 1MB
+          maxWidth: 1920,
+          maxHeight: 1080,
+          initialQuality: 0.9,
+        });
+        
+        // Convert compressed data URL back to blob
+        const compressedBlob = await fetch(compressedDataUrl).then(r => r.blob());
+        console.log('✅ Compressed image size:', formatBytes(compressedBlob.size));
         
         // Prepare FormData with multipart encoding
         const formData = new FormData();
-        formData.append('image', imageBlob, 'ticket.png');
+        formData.append('image', compressedBlob, 'ticket.jpg');
         formData.append('data', JSON.stringify(payload));
         
         console.log('📤 Sending multipart request to /with-image');
