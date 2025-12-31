@@ -177,6 +177,14 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
     }
   }, [isOpen, data, autoSaveCompleted, missingFieldCount]);
 
+  // Reset auto-save state when modal closes or new data arrives
+  useEffect(() => {
+    if (!isOpen) {
+      setAutoSaveCompleted(false);
+      setSaveStatus({ type: null, message: '' });
+    }
+  }, [isOpen]);
+
   // Early returns after all hooks
   if (!isOpen) return null;
   if (!data) return null;
