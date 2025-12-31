@@ -1,7 +1,8 @@
 import { TicketData, convertToApiPayload } from '@/utils/ocr';
 import { createTicket } from '@/lib/api';
 import { compressImage, formatBytes } from '@/utils/imageCompression';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface DataModalProps {
   isOpen: boolean;
@@ -15,29 +16,26 @@ interface DataModalProps {
 }
 
 export default function DataModal({ isOpen, onClose, data, ocrText = '', capturedImageUrl = '', processingProgress = 0, isProcessing = false, onScanAgain }: DataModalProps) {
+  const router = useRouter();
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{
     type: 'success' | 'error' | null;
     message: string;
   }>({ type: null, message: '' });
   const [confidence, setConfidence] = useState<number | null>(null);
-
-  if (!isOpen) return null;
+  const [autoSaveCompleted, setAutoSaveCompleted] = useState(false);
 
   const formatValue = (value: string, placeholder = '--') => {
     if (!value || value === 'RESCAN NEEDED') return placeholder;
     return value;
   };
 
-  // If data hasn't loaded yet, don't render the modal content
-  if (!data) return null;
-
   // Check for missing critical fields
   const criticalFields = ['DATE', 'TIME', 'TERMINAL ID', 'LOCATION', 'NO. TICKETS', 'TOTAL AMOUNT', 'BALANCE', 'TRACE NO', 'TRACE NO.'];
-  const missingFieldCount = criticalFields.filter(field => {
+  const missingFieldCount = data ? criticalFields.filter(field => {
     const value = data[field as keyof TicketData];
     return !value || value === 'RESCAN NEEDED' || value === '--';
-  }).length;
+  }).length : 0;
 
   const hasTooManyMissing = missingFieldCount > 3;
 
@@ -55,22 +53,19 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
 
   const extractTraceNo = (traceStr: string) => {
     if (!traceStr) return '--';
-    // Remove common prefixes like "TRACE NO." or "TRACE NO :" and clean up
     return traceStr.replace(/^TRACE\s+NO[\s\.:]*/, '').trim();
   };
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '--';
-    // Match DD-Month-Year pattern (handle cases like 119 or 19)
     const dateMatch = dateStr.match(/(\d{1,3})-([A-Z]{3})-(\d{4})/i);
     if (dateMatch) {
       let day = parseInt(dateMatch[1]);
       const month = dateMatch[2];
       const year = dateMatch[3];
       
-      // Fix invalid days (e.g., 119 -> 19)
       if (day > 31) {
-        day = day % 100; // Extract last two digits
+        day = day % 100;
       }
       
       return `${day.toString().padStart(2, '0')}-${month.toUpperCase()}-${year}`;
@@ -78,9 +73,9 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
     return dateStr;
   };
 
-  const totalAmount = formatValue(data['TOTAL AMOUNT'], 'LKR 0.00');
+  const totalAmount = data ? formatValue(data['TOTAL AMOUNT'], 'LKR 0.00') : 'LKR 0.00';
   const amountNum = extractAmount(totalAmount);
-  const ticketCount = parseInt(data['NO. TICKETS']) || 1;
+  const ticketCount = data ? (parseInt(data['NO. TICKETS']) || 1) : 1;
   const totalAmountNum = parseFloat(amountNum.replace(/,/g, '')) || 0;
   const amountPerPerson = ticketCount > 0 ? (totalAmountNum / ticketCount).toFixed(2) : '0.00';
 
@@ -94,48 +89,39 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
     setSaveStatus({ type: null, message: '' });
 
     try {
-      // Convert extracted OCR data to API format
       const payload = convertToApiPayload(data, ocrText, confidence);
       
       console.log('🔵 Payload to send:', payload);
       console.log('API Base URL:', process.env.NEXT_PUBLIC_API_BASE_URL);
       console.log('Image available:', !!capturedImageUrl);
 
-      // If image is available, upload with image to S3
       if (capturedImageUrl) {
         console.log('📸 Uploading ticket with image...');
         
-        // Convert Data URL to Blob
         let imageBlob = await fetch(capturedImageUrl).then(r => r.blob());
         console.log('📦 Original image size:', formatBytes(imageBlob.size));
         console.log('📦 Image MIME type:', imageBlob.type);
         
-        // Compress image to 1MB
         console.log('🔄 Compressing image to 1MB...');
         const compressedDataUrl = await compressImage(capturedImageUrl, {
-          maxSizeBytes: 1048576, // 1MB
+          maxSizeBytes: 1048576,
           maxWidth: 1920,
           maxHeight: 1080,
           initialQuality: 0.9,
         });
         
-        // Convert compressed data URL back to blob
         const compressedBlob = await fetch(compressedDataUrl).then(r => r.blob());
         console.log('✅ Compressed image size:', formatBytes(compressedBlob.size));
         
-        // Prepare FormData with multipart encoding
         const formData = new FormData();
         formData.append('image', compressedBlob, 'ticket.jpg');
         formData.append('data', JSON.stringify(payload));
         
         console.log('📤 Sending multipart request to /with-image');
         
-        // Send to backend API with image
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/with-image`, {
           method: 'POST',
           body: formData,
-          // NOTE: Do NOT set Content-Type header - browser will set it automatically
-          // with the correct multipart/form-data boundary
           credentials: 'include',
         });
 
@@ -149,19 +135,12 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
           throw new Error(errorMsg);
         }
 
-        // Success - extract trace number from response
         const traceNo = result.data?.trace_no || payload.trace_no;
         setSaveStatus({
           type: 'success',
           message: `✓ Ticket saved successfully (Trace: ${traceNo})`,
         });
-
-        // Auto-close after 2 seconds on success
-        setTimeout(() => {
-          onClose();
-        }, 2000);
       } else {
-        // Fallback: send without image if not available
         console.log('⚠️ No image available, saving ticket data only...');
         await createTicket(payload);
         
@@ -169,20 +148,15 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
           type: 'success',
           message: `✓ Ticket saved successfully (Trace: ${payload.trace_no})`,
         });
-
-        setTimeout(() => {
-          onClose();
-        }, 2000);
       }
     } catch (error) {
       console.error('❌ Full error object:', error);
       
-      // Check for duplicate key constraint error
       let errorMessage = 'Failed to save ticket';
       
       if (error instanceof Error) {
         const errorStr = error.message.toLowerCase();
-        if (errorStr.includes('duplicate key') && errorStr.includes('tickets_trace_no_key')) {
+        if (errorStr.includes('duplicate key') && (errorStr.includes('tickets_trace_no_key') || errorStr.includes('tickets_reference_no_key'))) {
           errorMessage = 'Ticket already saved';
         } else {
           errorMessage = error.message;
@@ -194,6 +168,18 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
       setIsSaving(false);
     }
   };
+
+  // Auto-save ticket if it has <= 3 missing fields
+  useEffect(() => {
+    if (isOpen && data && !autoSaveCompleted && missingFieldCount <= 3) {
+      handleSaveTicket();
+      setAutoSaveCompleted(true);
+    }
+  }, [isOpen, data, autoSaveCompleted, missingFieldCount]);
+
+  // Early returns after all hooks
+  if (!isOpen) return null;
+  if (!data) return null;
 
   return (
     <div className="fixed inset-0 z-[60]">
@@ -304,7 +290,6 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
                 {Object.entries(data)
                   .filter(([key]) => !['DATE', 'TIME', 'TERMINAL ID', 'LOCATION', 'NO. TICKETS', 'TOTAL AMOUNT', 'BALANCE'].includes(key))
                   .map(([key, value]) => {
-                    // Special handling for TRACE NO
                     if (key === 'TRACE NO' || key === 'TRACE NO.') {
                       return (
                         <div key={key} className="flex justify-between gap-1">
@@ -383,42 +368,59 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
           )}
 
           <div className="flex gap-3">
-            <button
-              onClick={handleSaveTicket}
-              disabled={isSaving || !data || hasTooManyMissing}
-              title={hasTooManyMissing ? 'Please recapture the ticket - too many missing fields' : ''}
-              className="flex-1 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              {isSaving ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-purple-300 border-t-transparent rounded-full animate-spin"></div>
-                  Saving...
-                </>
-              ) : hasTooManyMissing ? (
-                <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4v.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Recapture Required
-                </>
-              ) : (
-                <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  Save
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => onScanAgain && onScanAgain()}
-              className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Scan Again
-            </button>
+            {autoSaveCompleted && saveStatus.type === 'success' ? (
+              // Show Done button after successful auto-save
+              <button
+                onClick={() => {
+                  onClose();
+                  router.push('/scanner');
+                }}
+                className="flex-1 py-3 bg-green-600 hover:bg-green-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Done
+              </button>
+            ) : autoSaveCompleted && saveStatus.type === 'error' && saveStatus.message.includes('already saved') ? (
+              // Show Scan Again button when ticket already saved
+              <button
+                onClick={() => {
+                  onClose();
+                  router.push('/scanner');
+                }}
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Scan Ticket
+              </button>
+            ) : hasTooManyMissing ? (
+              // Show recapture message when too many fields missing
+              <button
+                onClick={() => {
+                  onClose();
+                  router.push('/scanner');
+                }}
+                title="Recapture the ticket - too many missing fields"
+                className="flex-1 py-3 bg-orange-600 hover:bg-orange-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Recapture Required
+              </button>
+            ) : isSaving ? (
+              // Show saving state
+              <button
+                disabled={true}
+                className="flex-1 py-3 bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <div className="w-4 h-4 border-2 border-purple-300 border-t-transparent rounded-full animate-spin"></div>
+                Saving...
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
