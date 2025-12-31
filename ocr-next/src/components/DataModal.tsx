@@ -176,7 +176,19 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
       }
     } catch (error) {
       console.error('❌ Full error object:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save ticket';
+      
+      // Check for duplicate key constraint error
+      let errorMessage = 'Failed to save ticket';
+      
+      if (error instanceof Error) {
+        const errorStr = error.message.toLowerCase();
+        if (errorStr.includes('duplicate key') && errorStr.includes('tickets_trace_no_key')) {
+          errorMessage = 'Ticket already saved';
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       setSaveStatus({ type: 'error', message: `✗ ${errorMessage}` });
     } finally {
       setIsSaving(false);
