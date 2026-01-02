@@ -91,16 +91,11 @@ export default function CropperModal({
       const displayWidth = img.width * imageScale;
       const displayHeight = img.height * imageScale;
 
-      const offsetX = (containerWidth - displayWidth) / 2;
-      const offsetY = (containerHeight - displayHeight) / 2;
-
-      canvas.width = containerWidth;
-      canvas.height = containerHeight;
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, containerWidth, containerHeight);
-        ctx.drawImage(img, offsetX, offsetY, displayWidth, displayHeight);
+        ctx.drawImage(img, 0, 0, displayWidth, displayHeight);
       }
 
       const margin = 0.1;
@@ -110,13 +105,13 @@ export default function CropperModal({
         activeHandle: null,
         startX: 0,
         startY: 0,
-        cropX: offsetX + displayWidth * margin,
-        cropY: offsetY + displayHeight * margin,
+        cropX: displayWidth * margin,
+        cropY: displayHeight * margin,
         cropWidth: displayWidth * (1 - 2 * margin),
         cropHeight: displayHeight * (1 - 2 * margin),
         imageScale,
-        offsetX,
-        offsetY,
+        offsetX: 0,
+        offsetY: 0,
         originalImage: img,
       });
     };
@@ -173,16 +168,16 @@ export default function CropperModal({
       const deltaX = pos.x - cropState.startX;
       const deltaY = pos.y - cropState.startY;
 
-      const containerWidth = cropperContainerRef.current?.clientWidth || 0;
-      const containerHeight = cropperContainerRef.current?.clientHeight || 0;
+      const canvasWidth = cropperCanvasRef.current?.width || 0;
+      const canvasHeight = cropperCanvasRef.current?.height || 0;
       const minSize = 50;
 
       setCropState((prev) => {
         let newState = { ...prev, startX: pos.x, startY: pos.y };
 
         if (prev.isDragging) {
-          newState.cropX = Math.max(0, Math.min(containerWidth - prev.cropWidth, prev.cropX + deltaX));
-          newState.cropY = Math.max(0, Math.min(containerHeight - prev.cropHeight, prev.cropY + deltaY));
+          newState.cropX = Math.max(0, Math.min(canvasWidth - prev.cropWidth, prev.cropX + deltaX));
+          newState.cropY = Math.max(0, Math.min(canvasHeight - prev.cropHeight, prev.cropY + deltaY));
         } else if (prev.isResizing) {
           const handle = prev.activeHandle;
 
@@ -195,7 +190,7 @@ export default function CropperModal({
           }
           if (handle?.includes('r')) {
             const newWidth = prev.cropWidth + deltaX;
-            if (newWidth >= minSize && prev.cropX + newWidth <= containerWidth) {
+            if (newWidth >= minSize && prev.cropX + newWidth <= canvasWidth) {
               newState.cropWidth = newWidth;
             }
           }
@@ -208,7 +203,7 @@ export default function CropperModal({
           }
           if (handle?.includes('b')) {
             const newHeight = prev.cropHeight + deltaY;
-            if (newHeight >= minSize && prev.cropY + newHeight <= containerHeight) {
+            if (newHeight >= minSize && prev.cropY + newHeight <= canvasHeight) {
               newState.cropHeight = newHeight;
             }
           }
@@ -243,16 +238,14 @@ export default function CropperModal({
   const handleReset = () => {
     if (!cropState.originalImage) return;
 
-    const containerWidth = cropperContainerRef.current?.clientWidth || 0;
-    const containerHeight = cropperContainerRef.current?.clientHeight || 0;
     const displayWidth = cropState.originalImage.width * cropState.imageScale;
     const displayHeight = cropState.originalImage.height * cropState.imageScale;
 
     const margin = 0.1;
     setCropState((prev) => ({
       ...prev,
-      cropX: prev.offsetX + displayWidth * margin,
-      cropY: prev.offsetY + displayHeight * margin,
+      cropX: displayWidth * margin,
+      cropY: displayHeight * margin,
       cropWidth: displayWidth * (1 - 2 * margin),
       cropHeight: displayHeight * (1 - 2 * margin),
     }));
@@ -262,8 +255,8 @@ export default function CropperModal({
     if (!cropState.originalImage || !croppedCanvasRef.current || isProcessing) return;
 
     const scaleBack = 1 / cropState.imageScale;
-    const sourceX = (cropState.cropX - cropState.offsetX) * scaleBack;
-    const sourceY = (cropState.cropY - cropState.offsetY) * scaleBack;
+    const sourceX = cropState.cropX * scaleBack;
+    const sourceY = cropState.cropY * scaleBack;
     const sourceWidth = cropState.cropWidth * scaleBack;
     const sourceHeight = cropState.cropHeight * scaleBack;
 
@@ -311,10 +304,10 @@ export default function CropperModal({
         {/* Cropper Canvas Container */}
         <div
           ref={cropperContainerRef}
-          className="flex-1 relative overflow-hidden"
+          className="flex-1 relative overflow-hidden flex items-center justify-center bg-black"
           style={{ minHeight: '300px' }}
         >
-          <canvas ref={cropperCanvasRef} className="absolute top-0 left-0 w-full h-full" />
+          <canvas ref={cropperCanvasRef} className="max-w-full max-h-full" />
           {/* Crop selection area */}
           <div
             ref={cropAreaRef}

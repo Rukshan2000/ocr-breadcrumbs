@@ -69,6 +69,7 @@ export default function OCRScanner() {
 
     const imageDataUrl = canvas.toDataURL('image/png');
     setCapturedImageUrl(imageDataUrl);
+    setShowDataModal(false);
     setShowCropperModal(true);
   }, []);
 
@@ -114,6 +115,9 @@ export default function OCRScanner() {
   const runOCR = async (imageDataUrl: string) => {
     try {
       const result = await Tesseract.recognize(imageDataUrl, 'eng', {
+        workerPath: '/tesseract/worker.min.js',
+        corePath: '/tesseract/tesseract-core-simd-lstm.wasm.js',
+        langPath: '/tesseract/lang/',
         logger: (m) => {
           if (m.status === 'recognizing text') {
             const progress = Math.round(m.progress * 100);
@@ -143,6 +147,12 @@ export default function OCRScanner() {
       setIsOcrProcessing(false);
     }
   };
+
+  const handleCloseCropperModal = useCallback(() => {
+    setShowCropperModal(false);
+    setIsOcrProcessing(false);
+    setProcessingProgress(0);
+  }, []);
 
   const handleCloseDataModal = () => {
     setShowDataModal(false);
@@ -230,7 +240,7 @@ export default function OCRScanner() {
       {/* Cropper Modal */}
       <CropperModal
         isOpen={showCropperModal}
-        onClose={() => setShowCropperModal(false)}
+        onClose={handleCloseCropperModal}
         imageDataUrl={capturedImageUrl}
         onConfirm={handleCropConfirm}
         isProcessing={isOcrProcessing}

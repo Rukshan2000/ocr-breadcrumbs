@@ -8,6 +8,7 @@ export interface LoginRequest {
   email?: string;
   username?: string;
   password: string;
+  type: 'app' | 'portal';
 }
 
 export interface RegisterRequest {
@@ -29,6 +30,7 @@ export interface LoginResponse {
       first_name: string;
       last_name: string;
       role: string;
+      type: 'app' | 'portal';
       status: string;
       phone?: string;
       department?: string;
@@ -36,6 +38,10 @@ export interface LoginResponse {
       last_login?: string;
       created_at: string;
       updated_at: string;
+      permissions: Array<{
+        id: number;
+        name: string;
+      }>;
     };
     tokens: {
       accessToken: string;

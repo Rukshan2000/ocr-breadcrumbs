@@ -59,6 +59,7 @@ export default function LoginPage() {
       const response = await login({
         email: formData.email,
         password: formData.password,
+        type: 'app',
       }).unwrap();
 
       if (response.success && response.data?.user && response.data?.tokens) {
@@ -81,7 +82,7 @@ export default function LoginPage() {
         setError('Login response invalid. Please try again.');
       }
     } catch (err: any) {
-      const errorMessage = err?.data?.message || 'Login failed. Please try again.';
+      const errorMessage = err?.data?.error || err?.data?.message || 'Login failed. Please try again.';
       setError(errorMessage);
       console.error('Login error:', err);
     }

@@ -21,6 +21,7 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
   const [saveStatus, setSaveStatus] = useState<{
     type: 'success' | 'error' | null;
     message: string;
+    isTraceNoMissing?: boolean;
   }>({ type: null, message: '' });
   const [confidence, setConfidence] = useState<number | null>(null);
   const [autoSaveCompleted, setAutoSaveCompleted] = useState(false);
@@ -153,17 +154,21 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
       console.error('❌ Full error object:', error);
       
       let errorMessage = 'Failed to save ticket';
+      let isTraceNoMissing = false;
       
       if (error instanceof Error) {
         const errorStr = error.message.toLowerCase();
         if (errorStr.includes('duplicate key') && (errorStr.includes('tickets_trace_no_key') || errorStr.includes('tickets_reference_no_key'))) {
           errorMessage = 'Ticket already saved';
+        } else if (errorStr.includes('null value in column "trace_no"') || errorStr.includes('violates not-null constraint')) {
+          errorMessage = 'Ticket ID or Reference No missing - Please scan again';
+          isTraceNoMissing = true;
         } else {
           errorMessage = error.message;
         }
       }
       
-      setSaveStatus({ type: 'error', message: `✗ ${errorMessage}` });
+      setSaveStatus({ type: 'error', message: `✗ ${errorMessage}`, isTraceNoMissing });
     } finally {
       setIsSaving(false);
     }
@@ -376,7 +381,21 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
           )}
 
           <div className="flex gap-3">
-            {autoSaveCompleted && saveStatus.type === 'success' ? (
+            {saveStatus.type === 'error' && saveStatus.isTraceNoMissing ? (
+              // Show Scan Again button for missing trace_no
+              <button
+                onClick={() => {
+                  onClose();
+                  router.push('/scanner');
+                }}
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Scan Again
+              </button>
+            ) : autoSaveCompleted && saveStatus.type === 'success' ? (
               // Show Done button after successful auto-save
               <button
                 onClick={() => {
