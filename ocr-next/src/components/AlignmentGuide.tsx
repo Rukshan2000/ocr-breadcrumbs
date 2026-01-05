@@ -68,21 +68,15 @@ export default function AlignmentGuide({ show }: AlignmentGuideProps) {
     }
 
     // Update flat bubble (front-back)
-    const targetBeta = 60;
-    const betaDeviation = beta - targetBeta;
-    const betaOffset = Math.max(-40, Math.min(40, betaDeviation * 0.8));
+    const betaOffset = Math.max(-40, Math.min(40, beta * 0.8));
     if (flatBubbleRef.current) {
       flatBubbleRef.current.style.transform = `translateY(-50%) translateX(calc(-50% + ${betaOffset}px))`;
 
-      // Update color
+      // Update color - green when flat (beta close to 0), red when vertical
       flatBubbleRef.current.classList.remove('alignment-good', 'alignment-warning', 'alignment-bad');
-      if (beta >= 30 && beta <= 90) {
-        if (Math.abs(betaDeviation) < 15) {
-          flatBubbleRef.current.classList.add('alignment-good');
-        } else {
-          flatBubbleRef.current.classList.add('alignment-warning');
-        }
-      } else if (beta >= 15 && beta <= 110) {
+      if (Math.abs(beta) < 15) {
+        flatBubbleRef.current.classList.add('alignment-good');
+      } else if (Math.abs(beta) < 30) {
         flatBubbleRef.current.classList.add('alignment-warning');
       } else {
         flatBubbleRef.current.classList.add('alignment-bad');
@@ -93,15 +87,15 @@ export default function AlignmentGuide({ show }: AlignmentGuideProps) {
   const getAlignmentStatus = () => {
     const { beta, gamma } = orientation;
     const tiltOk = Math.abs(gamma) < 5;
-    const flatOk = beta >= 30 && beta <= 90;
+    const flatOk = Math.abs(beta) < 15;
 
     if (tiltOk && flatOk) {
       return { text: '✓ Perfect - Capture Now!', className: 'bg-green-500/80' };
     } else if (tiltOk || flatOk) {
-      const issue = !tiltOk ? 'Level the phone' : 'Adjust angle';
+      const issue = !tiltOk ? 'Level the phone' : 'Lay flat on surface';
       return { text: `⚠ ${issue}`, className: 'bg-yellow-500/80' };
     } else {
-      return { text: '✗ Align camera', className: 'bg-red-500/80' };
+      return { text: '✗ Adjust position', className: 'bg-red-500/80' };
     }
   };
 
@@ -110,20 +104,13 @@ export default function AlignmentGuide({ show }: AlignmentGuideProps) {
   const status = getAlignmentStatus();
 
   return (
-    <div className="absolute inset-0 pointer-events-none">
-      {/* Center crosshair */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="relative w-64 h-40 border-2 border-white/50 rounded-lg">
-          {/* Corner markers */}
-          <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg"></div>
-          <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg"></div>
-          <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg"></div>
-          <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg"></div>
-          {/* Center dot */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full"></div>
-        </div>
-      </div>
-
+    <div className="absolute inset-0 pointer-events-none" style={{
+      backgroundImage: `
+        linear-gradient(rgba(255, 255, 255, 0.2) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px)
+      `,
+      backgroundSize: '30px 30px'
+    }}>
       {/* Level indicator (bubble level) */}
       <div className="absolute top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
         {/* Horizontal level */}
