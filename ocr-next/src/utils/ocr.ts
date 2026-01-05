@@ -1,14 +1,74 @@
-// Image preprocessing function
+/**
+ * Legacy Image preprocessing function (GENTLER VERSION)
+ * Performs grayscale conversion and contrast enhancement WITHOUT binarization
+ * Binarization destroys text information needed by Tesseract
+ * @deprecated Use preprocessImageAdvanced from advancedImageProcessing.ts for better results
+ */
 export function preprocessImage(imageData: ImageData): ImageData {
   const data = imageData.data;
+  
+  // Step 1: Convert to grayscale with contrast enhancement
+  // DO NOT BINARIZE - Tesseract needs grayscale values
   for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const contrast = 1.5;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    
+    // Convert to grayscale using standard luminosity formula
+    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    
+    // Apply modest contrast enhancement (avoid destroying text)
+    const contrast = 1.3; // Reduced from 1.8 to be gentler
     const factor = (259 * (contrast * 100 + 255)) / (255 * (259 - contrast * 100));
     let enhanced = factor * (gray - 128) + 128;
-    const binarized = enhanced > 128 ? 255 : 0;
-    data[i] = data[i + 1] = data[i + 2] = binarized;
+    
+    // Clamp values to valid range
+    enhanced = Math.max(0, Math.min(255, enhanced));
+    
+    // IMPORTANT: Store as grayscale, NOT binary (black/white only)
+    // This preserves the information Tesseract needs
+    data[i] = data[i + 1] = data[i + 2] = enhanced;
+    data[i + 3] = 255; // Ensure full opacity
   }
+  
+  // Step 2: Apply simple noise reduction (Gaussian blur approximation)
+  // This helps with OCR without destroying text details
+  const totalPixels = data.length / 4;
+  const width = imageData.width;
+  const height = imageData.height;
+  const tempData = new Uint8ClampedArray(data);
+  
+  for (let i = 0; i < data.length; i += 4) {
+    const pixelIndex = i / 4;
+    const x = pixelIndex % width;
+    const y = Math.floor(pixelIndex / width);
+    
+    // Skip edges to avoid boundary issues
+    if (x === 0 || x === width - 1 || y === 0 || y === height - 1) continue;
+    
+    // Apply 3x3 Gaussian blur kernel
+    let sum = 0;
+    const kernel = [
+      0.0625, 0.125, 0.0625,
+      0.125,  0.25,  0.125,
+      0.0625, 0.125, 0.0625
+    ];
+    let kernelIdx = 0;
+    
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        const neighborIdx = (ny * width + nx) * 4;
+        sum += tempData[neighborIdx] * kernel[kernelIdx];
+        kernelIdx++;
+      }
+    }
+    
+    const blurred = Math.round(sum);
+    data[i] = data[i + 1] = data[i + 2] = blurred;
+  }
+  
   return imageData;
 }
 
@@ -90,7 +150,7 @@ export interface TicketData {
   'REFFERENCE NO': string;
 }
 
-// Extract ticket data from OCR text
+// Extract ticket data from OCR text with improved pattern matching
 export function extractTicketData(text: string): TicketData {
   const data: TicketData = {
     DATE: '',
@@ -103,31 +163,44 @@ export function extractTicketData(text: string): TicketData {
     'REFFERENCE NO': '',
   };
 
-  // Extract DATE
-  const dateMatch = text.match(/DATE\s*[:\s'"\`]+\s*(\d{1,2}[-\/][A-Z]{3}[-\/]\d{4})/i);
-  if (dateMatch) {
+  // Extract DATE - more flexible patterns
+  let dateMatch = text.match(/DATE\s*[:\s'"\`]+\s*(\d{1,2}[-\/][A-Z]{3}[-\/]\d{4})/i);
+  if (!dateMatch) {
+    // Try alternative format: DD-MMM-YYYY without field label
+    dateMatch = text.match(/(\d{1,2})[-\/](JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[-\/](\d{4})/i);
+    if (dateMatch) {
+      data['DATE'] = `${dateMatch[1]}-${dateMatch[2].toUpperCase()}-${dateMatch[3]}`;
+    }
+  } else {
     data['DATE'] = dateMatch[1];
   }
 
-  // Extract TIME
-  let timeMatch = text.match(/T[I1!l]M?N?E\s*[:\s"'\`]*\s*([\d]{1,2})[:\.\s]([\d]{2})\s*HRS?/i);
+  // Extract TIME - multiple pattern attempts
+  let timeMatch = text.match(/T[I1!l]M[E3]\s*[:\s"'\`]*\s*(\d{1,2})[:\.\s](\d{2})\s*HRS?/i);
   if (timeMatch) {
     data['TIME'] = timeMatch[1].padStart(2, '0') + ':' + timeMatch[2] + ' HRS';
   } else {
-    const timeMatch2 = text.match(/T[I1!l]M?N?E\s*[:\s"'\`]*\s*([\d]{2})([\d]{2})\s*HRS?/i);
+    // Try format with no separator
+    const timeMatch2 = text.match(/T[I1!l]M[E3]\s*[:\s"'\`]*\s*(\d{2})(\d{2})\s*HRS?/i);
     if (timeMatch2) {
-      let hours = parseInt(timeMatch2[1]);
-      data['TIME'] = hours.toString().padStart(2, '0') + ':' + timeMatch2[2] + ' HRS';
+      data['TIME'] = timeMatch2[1] + ':' + timeMatch2[2] + ' HRS';
+    } else {
+      // Try any HH:MM pattern near TIME keyword
+      const timeMatch3 = text.match(/T[I1!l]M[E3][^\d]*(\d{1,2})[:\.](\d{2})/i);
+      if (timeMatch3) {
+        data['TIME'] = timeMatch3[1].padStart(2, '0') + ':' + timeMatch3[2] + ' HRS';
+      }
     }
   }
 
-  // Extract TERMINAL ID
+  // Extract TERMINAL ID - multiple attempts with more flexibility
   let terminalMatch = text.match(/TERMINAL\s*[\[\(\{]?[I1!lD]*[\]\)\}]?\s*[:\s]+[:\s']*(T[\dOoQqCc]{3,5})/i);
   if (!terminalMatch) {
-    terminalMatch = text.match(/TERMINAL[^T]{0,15}(T[0OoQqCc\d]{3,5})/i);
+    terminalMatch = text.match(/TERMINAL[^T]{0,20}(T[0OoQqCc\d]{3,5})/i);
   }
   if (!terminalMatch) {
-    terminalMatch = text.match(/:(T[0OoQqCc\d]{3,5})\b/i);
+    // Try to find standalone T-code
+    terminalMatch = text.match(/\b(T[0OoQqCc\d]{3,5})\b/);
   }
 
   if (terminalMatch) {
@@ -137,46 +210,53 @@ export function extractTicketData(text: string): TicketData {
     terminalId = 'T' + cleanDigits;
     if (/^T\d{3,4}$/.test(terminalId)) {
       data['TERMINAL ID'] = terminalId;
-    } else {
-      data['TERMINAL ID'] = 'RESCAN NEEDED';
     }
-  } else {
-    data['TERMINAL ID'] = 'RESCAN NEEDED';
   }
 
-  // Extract LOCATION
-  const locationMatch = text.match(/LOCATION\s*[:\s]+[:\s]*([A-Za-z\s]+?)(?=\n|NO\.|$)/i);
-  if (locationMatch) data['LOCATION'] = locationMatch[1].trim();
+  // Extract LOCATION - flexible matching
+  let locationMatch = text.match(/LOCATION\s*[:\s]+[:\s]*([A-Za-z\s]+?)(?=\n|NO\.|TICKET|$)/i);
+  if (!locationMatch) {
+    // Try to find anything after LOCATION keyword
+    locationMatch = text.match(/LOCATION[:\s]+([^\n]+)/i);
+  }
+  if (locationMatch) {
+    const location = locationMatch[1].trim();
+    // Filter out field labels
+    if (location.length > 2 && !location.match(/^(DATE|TIME|TERMINAL|TICKET)/i)) {
+      data['LOCATION'] = location;
+    }
+  }
 
-  // Extract NO. TICKETS
+  // Extract NO. TICKETS - multiple patterns
   let ticketsMatch = text.match(/NO\.?\s*TICKETS?\s*[:\s'"\`]*[:\s'"]*([OoQq\d]+)/i);
+  if (!ticketsMatch) {
+    ticketsMatch = text.match(/TICKETS?\s*[:\s]+([OoQq\d]+)/i);
+  }
   if (ticketsMatch) {
     let tickets = ticketsMatch[1].replace(/[OoQq]/g, '0');
     tickets = tickets.replace(/^0+/, '') || '0';
     data['NO. TICKETS'] = tickets.padStart(2, '0');
   }
 
-  // Extract TOTAL AMOUNT
+  // Extract TOTAL AMOUNT - multiple patterns
   let totalMatch = text.match(/TOTAL\s*A[UM]*OUNT\s*[:\s]+[:\s]*(?:LKR\s*)?([\d][,\.\d\s]*[\d])/i);
+  if (!totalMatch) {
+    // Try simpler pattern
+    totalMatch = text.match(/TOTAL[:\s]+(?:LKR\s*)?([\d,\.\s]+)/i);
+  }
   if (totalMatch) {
     let amount = totalMatch[1].trim();
     // Handle European format: 1.500. 00 or 1.500,00 or 1,500.00
-    // First, remove all spaces
     amount = amount.replace(/\s+/g, '');
     
-    // If there are two separators (thousand and decimal), identify which is which
     const separatorMatches = Array.from(amount.matchAll(/[,\.]/g));
     if (separatorMatches.length >= 2) {
-      // Last separator is always the decimal separator
       const lastSeparatorIndex = amount.lastIndexOf(separatorMatches[separatorMatches.length - 1][0]);
       const beforeLast = amount.substring(0, lastSeparatorIndex);
       const afterLast = amount.substring(lastSeparatorIndex + 1);
-      
-      // Remove all thousand separators from before-last part
       const wholePart = beforeLast.replace(/[,\.]/g, '');
       amount = wholePart + '.' + afterLast;
     } else if (separatorMatches.length === 1) {
-      // Single separator - if it has 2+ digits after it, it's decimal; otherwise thousand
       const lastSep = separatorMatches[0][0];
       const afterSep = amount.substring(amount.lastIndexOf(lastSep) + 1);
       if (afterSep.length >= 2) {
@@ -186,22 +266,20 @@ export function extractTicketData(text: string): TicketData {
       }
     }
     data['TOTAL AMOUNT'] = 'LKR ' + amount;
-  } else {
-    const totalMatch2 = text.match(/TOTAL\s*A[UM]*OUNT[^\d]*(\d[,\.\d\s]+)/i);
-    if (totalMatch2) {
-      let amount = totalMatch2[1].replace(/\s+/g, '');
-      // Remove trailing separators
-      amount = amount.replace(/[,\.]+$/, '');
-      data['TOTAL AMOUNT'] = 'LKR ' + amount;
-    }
   }
 
-  // Extract TRACE NO
-  const traceMatch = text.match(/TRACE\s*NO\s*[:\s'"\`]+[:\s']*(\d+)/i);
+  // Extract TRACE NO - flexible matching
+  let traceMatch = text.match(/TRACE\s*NO\.?\s*[:\s'"\`]+[:\s']*(\d+)/i);
+  if (!traceMatch) {
+    traceMatch = text.match(/TRACE[:\s]+(\d+)/i);
+  }
   if (traceMatch) data['TRACE NO'] = traceMatch[1];
 
-  // Extract REFERENCE NO
-  const refMatch = text.match(/REF+E?R+E?NCE?\s*NO\s*[:\s'"\`]+[:\s'"]*([A-Z0-9]+)/i);
+  // Extract REFERENCE NO - flexible matching
+  let refMatch = text.match(/REF+E?R+E?NC[E3]?\s*NO\.?\s*[:\s'"\`]+[:\s'"]*([A-Z0-9]+)/i);
+  if (!refMatch) {
+    refMatch = text.match(/REF[:\s]+([A-Z0-9]+)/i);
+  }
   if (refMatch) data['REFFERENCE NO'] = refMatch[1];
 
   return data;

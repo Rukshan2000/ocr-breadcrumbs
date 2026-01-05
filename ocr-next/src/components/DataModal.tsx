@@ -25,20 +25,21 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
   }>({ type: null, message: '' });
   const [confidence, setConfidence] = useState<number | null>(null);
   const [autoSaveCompleted, setAutoSaveCompleted] = useState(false);
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
 
   const formatValue = (value: string, placeholder = '--') => {
     if (!value || value === 'RESCAN NEEDED') return placeholder;
     return value;
   };
 
-  // Check for missing critical fields
-  const criticalFields = ['DATE', 'TIME', 'TERMINAL ID', 'LOCATION', 'NO. TICKETS', 'TOTAL AMOUNT', 'BALANCE', 'TRACE NO', 'TRACE NO.'];
+  // Check for missing critical fields - match what's actually in TicketData interface
+  const criticalFields = ['DATE', 'TIME', 'TERMINAL ID', 'LOCATION', 'NO. TICKETS', 'TOTAL AMOUNT', 'TRACE NO'];
   const missingFieldCount = data ? criticalFields.filter(field => {
     const value = data[field as keyof TicketData];
     return !value || value === 'RESCAN NEEDED' || value === '--';
   }).length : 0;
 
-  const hasTooManyMissing = missingFieldCount > 3;
+  const hasTooManyMissing = missingFieldCount > 2; // Reduced threshold from 3 to 2
 
   const extractAmount = (amountStr: string) => {
     if (!amountStr) return '0.00';
@@ -174,9 +175,9 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
     }
   };
 
-  // Auto-save ticket if it has <= 3 missing fields
+  // Auto-save ticket if it has <= 2 missing fields (more lenient than before)
   useEffect(() => {
-    if (isOpen && data && !autoSaveCompleted && missingFieldCount <= 3) {
+    if (isOpen && data && !autoSaveCompleted && missingFieldCount <= 2) {
       handleSaveTicket();
       setAutoSaveCompleted(true);
     }
@@ -200,7 +201,17 @@ export default function DataModal({ isOpen, onClose, data, ocrText = '', capture
       <div className="relative h-full flex flex-col">
         {/* Data Modal Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-800">
-          <h2 className="text-lg font-medium">Ticket Preview</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-medium">Ticket Preview</h2>
+            {hasTooManyMissing && (
+              <button
+                onClick={() => setShowDebugInfo(!showDebugInfo)}
+                className="text-xs px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-white"
+              >
+                {showDebugInfo ? 'Hide Debug' : 'Show Debug'}
+              </button>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-700 rounded-full transition-colors"

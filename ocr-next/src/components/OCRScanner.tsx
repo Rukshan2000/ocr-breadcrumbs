@@ -6,6 +6,8 @@ import AlignmentGuide from './AlignmentGuide';
 import DataModal from './DataModal';
 import CropperModal from './CropperModal';
 import { preprocessImage, correctTicketText, extractTicketData, TicketData } from '@/utils/ocr';
+import { preprocessImageAdvanced, canvasToDataUrl, AdvancedProcessingOptions } from '@/utils/advancedImageProcessing';
+import { logOcrDebug, analyzeOcrQuality, DebugInfo } from '@/utils/ocrDebug';
 
 export default function OCRScanner() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -14,16 +16,19 @@ export default function OCRScanner() {
 
   const [showGuide, setShowGuide] = useState(true);
   const [preprocess, setPreprocess] = useState(true);
+  const [useAdvancedProcessing, setUseAdvancedProcessing] = useState(false); // Default to OFF until fixed
   const [showDataModal, setShowDataModal] = useState(false);
   const [showCropperModal, setShowCropperModal] = useState(false);
   const [capturedImageUrl, setCapturedImageUrl] = useState('');
   const [ocrText, setOcrText] = useState('Processing...');
+  const [rawOcrText, setRawOcrText] = useState('');
   const [confidence, setConfidence] = useState<number | null>(null);
   const [extractedData, setExtractedData] = useState<TicketData | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
 
   // Initialize camera
   useEffect(() => {
@@ -78,8 +83,11 @@ export default function OCRScanner() {
       setIsOcrProcessing(true);
       setProcessingProgress(0);
       setOcrText('Processing...');
+      setRawOcrText('');
       setConfidence(null);
       setExtractedData(null);
+
+      // console.log('%c========== Image Preprocessing Started ==========', 'color: #0066FF; font-weight: bold; font-size: 14px');
 
       // Apply preprocessing if enabled
       let processedDataUrl = croppedDataUrl;
@@ -95,25 +103,69 @@ export default function OCRScanner() {
           if (!ctx) return;
 
           ctx.drawImage(img, 0, 0);
-          const imageData = ctx.getImageData(0, 0, img.width, img.height);
-          const processedData = preprocessImage(imageData);
-          ctx.putImageData(processedData, 0, 0);
 
-          setShowPreview(true);
-          processedDataUrl = previewCanvas.toDataURL('image/png');
-          await runOCR(processedDataUrl);
+          // console.log('%c📊 Image Preprocessing', 'color: #0066FF; font-weight: bold; font-size: 13px');
+          // console.log('Image dimensions:', img.width, 'x', img.height);
+          // console.log('Preprocessing enabled:', preprocess);
+          // console.log('Advanced processing enabled:', useAdvancedProcessing);
+
+          try {
+            // Use advanced processing if enabled, otherwise use legacy preprocessing
+            if (useAdvancedProcessing) {
+              setOcrText('Optimizing image...');
+              // console.log('%c🚀 Using ADVANCED preprocessing pipeline', 'color: #FF6600; font-weight: bold');
+              const advancedOptions: AdvancedProcessingOptions = {
+                targetDpi: 300,
+                targetTextHeight: 32,
+                enableDeskew: false,  // Disabled - can destroy text
+                enableIlluminationFix: true,
+                enableBinarization: false, // Disabled - handled by legacy preprocessing
+                enableDenoising: true,
+                enableUnsharpMask: false, // Disabled - can cause artifacts
+                unsharpMaskRadius: 6.8,
+                unsharpMaskAmount: 2.69,
+                unsharpMaskThreshold: 0,
+                resizeBeforeProcessing: true,
+              };
+
+              await preprocessImageAdvanced(previewCanvas, advancedOptions);
+            } else {
+              // Use legacy preprocessing - simpler and more reliable
+              // console.log('%c⚙️ Using LEGACY preprocessing pipeline', 'color: #00AA00; font-weight: bold');
+              const imageData = ctx.getImageData(0, 0, img.width, img.height);
+              const processedData = preprocessImage(imageData);
+              ctx.putImageData(processedData, 0, 0);
+              // console.log('✓ Legacy preprocessing applied');
+            }
+
+            setShowPreview(true);
+            processedDataUrl = canvasToDataUrl(previewCanvas, 'png');
+            // console.log('%c========== Image Preprocessing Completed ==========', 'color: #0066FF; font-weight: bold; font-size: 14px');
+            // console.log('Processed image data URL length:', processedDataUrl.length);
+            
+            await runOCR(processedDataUrl);
+          } catch (error) {
+            console.error('Error during preprocessing:', error);
+            setOcrText('Preprocessing error: ' + (error as Error).message);
+            setIsOcrProcessing(false);
+          }
         };
         img.src = croppedDataUrl;
       } else {
+        // console.log('%c⏭️ Skipping preprocessing - using raw image', 'color: #FF0000; font-weight: bold');
         setShowPreview(false);
         await runOCR(croppedDataUrl);
       }
     },
-    [preprocess]
+    [preprocess, useAdvancedProcessing]
   );
 
   const runOCR = async (imageDataUrl: string) => {
+    const startTime = Date.now();
     try {
+      setOcrText('Recognizing text...');
+      // console.log('%c========== OCR Processing Started ==========', 'color: #00AA00; font-weight: bold; font-size: 14px');
+      
       const result = await Tesseract.recognize(imageDataUrl, 'eng', {
         workerPath: '/tesseract/worker.min.js',
         corePath: '/tesseract/tesseract-core-simd-lstm.wasm.js',
@@ -122,17 +174,67 @@ export default function OCRScanner() {
           if (m.status === 'recognizing text') {
             const progress = Math.round(m.progress * 100);
             setProcessingProgress(progress);
-            setOcrText(`Processing... ${progress}%`);
+            setOcrText(`Recognizing text... ${progress}%`);
           }
         },
       });
 
-      const correctedText = correctTicketText(result.data.text.trim());
+      const rawText = result.data.text.trim();
+      const processingTime = Date.now() - startTime;
+      
+      // Store raw OCR text for debugging
+      setRawOcrText(rawText);
+      
+      // Comprehensive logging
+      // console.group('%c📸 RAW OCR OUTPUT', 'color: #0099FF; font-weight: bold; font-size: 13px');
+      // console.log('%cText Length:', 'font-weight: bold', rawText.length, 'characters');
+      // console.log('%cConfidence Score:', 'font-weight: bold', result.data.confidence.toFixed(2) + '%');
+      // console.log('%cProcessing Time:', 'font-weight: bold', processingTime + 'ms');
+      // console.log('%cRaw Text (plain):', 'font-weight: bold');
+      // console.log(rawText);
+      // console.log('%cRaw Text (with visible whitespace):', 'font-weight: bold');
+      // console.log(JSON.stringify(rawText, null, 2));
+      // console.log('%cText by line:', 'font-weight: bold');
+      // rawText.split('\n').forEach((line, idx) => {
+      //   if (line.trim()) {
+      //     console.log(`  Line ${idx}: "${line}"`);
+      //   }
+      // });
+      // console.groupEnd();
+
+      // Apply text corrections
+      const correctedText = correctTicketText(rawText);
       setOcrText(correctedText || 'No text detected.');
       setConfidence(result.data.confidence);
 
+      // console.group('%c✏️ AFTER TEXT CORRECTION', 'color: #FF9900; font-weight: bold; font-size: 13px');
+      // console.log('%cCorrected Text Length:', 'font-weight: bold', correctedText.length, 'characters');
+      // console.log('%cCorrected Text:', 'font-weight: bold');
+      // console.log(correctedText);
+      // console.groupEnd();
+
+      // Extract ticket data
       const data = extractTicketData(correctedText);
       setExtractedData(data);
+      
+      // console.group('%c📋 EXTRACTED DATA', 'color: #9900FF; font-weight: bold; font-size: 13px');
+      // Object.entries(data).forEach(([key, value]) => {
+      //   const status = value ? '✓' : '✗';
+      //   console.log(`${status} ${key}:`, value || '(empty)');
+      // });
+      // console.log('%cFull Data Object:', 'font-weight: bold', data);
+      // console.groupEnd();
+      
+      // Analyze quality
+      const quality = analyzeOcrQuality(rawText, result.data.confidence);
+      // console.group('%c🔍 QUALITY ANALYSIS', 'color: #FF6600; font-weight: bold; font-size: 13px');
+      // console.log('%cQuality Score:', 'font-weight: bold', quality.score + '/100');
+      // console.log('%cIssues:', 'font-weight: bold', quality.issues);
+      // console.log('%cSuggestions:', 'font-weight: bold', quality.suggestions);
+      // console.groupEnd();
+
+      // console.log('%c========== OCR Processing Completed ==========', 'color: #00AA00; font-weight: bold; font-size: 14px');
+
       setProcessingProgress(100);
 
       // Close cropper and show data modal after processing is complete
@@ -142,7 +244,13 @@ export default function OCRScanner() {
         setShowDataModal(true);
       }, 500);
     } catch (err) {
-      setOcrText('Error: ' + (err as Error).message);
+      const errorMsg = (err as Error).message;
+      // console.error('%c❌ OCR ERROR:', 'color: #FF0000; font-weight: bold; font-size: 13px', err);
+      // console.error('Error Details:', {
+      //   message: errorMsg,
+      //   stack: (err as Error).stack,
+      // });
+      setOcrText('Error: ' + errorMsg);
       setProcessingProgress(0);
       setIsOcrProcessing(false);
     }
@@ -203,7 +311,7 @@ export default function OCRScanner() {
         <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-light">OCR Scanner</h1>
-            <div className="flex gap-3">
+            <div className="flex gap-3 flex-wrap justify-end">
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input
                   type="checkbox"
@@ -221,6 +329,16 @@ export default function OCRScanner() {
                   className="w-4 h-4 accent-blue-500 rounded"
                 />
                 <span>Enhance</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useAdvancedProcessing}
+                  onChange={(e) => setUseAdvancedProcessing(e.target.checked)}
+                  disabled={!preprocess}
+                  className="w-4 h-4 accent-purple-500 rounded disabled:opacity-50"
+                />
+                <span>Advanced</span>
               </label>
             </div>
           </div>
