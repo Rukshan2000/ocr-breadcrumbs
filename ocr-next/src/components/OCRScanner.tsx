@@ -29,20 +29,50 @@ export default function OCRScanner() {
   const [processingProgress, setProcessingProgress] = useState(0);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [torchEnabled, setTorchEnabled] = useState(false);
+  const [torchAvailable, setTorchAvailable] = useState(false);
 
-  // Initialize camera
+  // Initialize camera and detect available cameras
   useEffect(() => {
     const initCamera = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        // Get available cameras
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter(device => device.kind === 'videoinput');
+        setAvailableCameras(cameras);
+        
+        if (cameras.length > 0 && !selectedCameraId) {
+          setSelectedCameraId(cameras[0].deviceId);
+        }
+
+        // Request camera access with selected camera or environment camera
+        const constraints: MediaStreamConstraints = {
           video: {
             width: { ideal: 1920 },
             height: { ideal: 1080 },
             facingMode: 'environment',
           },
-        });
+        };
+
+        // If we have a specific camera selected, use it
+        if (selectedCameraId) {
+          (constraints.video as any).deviceId = { exact: selectedCameraId };
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          
+          // Check if torch is available
+          const videoTrack = stream.getVideoTracks()[0];
+          if (videoTrack) {
+            const capabilities = (videoTrack.getCapabilities() as any);
+            if (capabilities.torch) {
+              setTorchAvailable(true);
+            }
+          }
         }
       } catch (err) {
         setCameraError('Camera error: ' + (err as Error).message);
@@ -58,7 +88,28 @@ export default function OCRScanner() {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [selectedCameraId]);
+
+  const toggleFlashlight = async () => {
+    try {
+      if (videoRef.current?.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        const videoTrack = stream.getVideoTracks()[0];
+        
+        if (videoTrack) {
+          const capabilities = (videoTrack.getCapabilities() as any);
+          if (capabilities.torch) {
+            await videoTrack.applyConstraints({
+              advanced: [{ torch: !torchEnabled } as any]
+            } as any);
+            setTorchEnabled(!torchEnabled);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Flashlight error:', err);
+    }
+  };
 
   const handleCapture = useCallback(() => {
     const video = videoRef.current;
@@ -311,7 +362,7 @@ export default function OCRScanner() {
         <div className="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-light">OCR Scanner</h1>
-            <div className="flex gap-3 flex-wrap justify-end">
+            <div className="flex gap-2">
               <label className="flex items-center gap-2 text-xs cursor-pointer">
                 <input
                   type="checkbox"
@@ -342,6 +393,41 @@ export default function OCRScanner() {
               </label>
             </div>
           </div>
+        </div>
+
+        {/* Right Side Control Panel */}
+        <div className="absolute top-20 right-4 flex flex-col gap-3 z-20">
+          {/* Camera Quality Selector */}
+          {availableCameras.length > 1 && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-white/70 font-semibold px-2">Camera Quality</label>
+              <select
+                value={selectedCameraId}
+                onChange={(e) => setSelectedCameraId(e.target.value)}
+                className="px-3 py-2 text-xs bg-black/80 border border-white/40 rounded text-white cursor-pointer hover:bg-black/90 transition-colors w-48"
+              >
+                {availableCameras.map((camera, idx) => (
+                  <option key={camera.deviceId} value={camera.deviceId}>
+                    📷 Camera {idx + 1} {camera.label ? `(${camera.label})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Flash Button */}
+          {torchAvailable && (
+            <button
+              onClick={toggleFlashlight}
+              className={`px-4 py-2 text-xs font-semibold rounded transition-all w-full ${
+                torchEnabled
+                  ? 'bg-yellow-500 text-black hover:bg-yellow-600 shadow-lg shadow-yellow-500/50'
+                  : 'bg-black/80 border border-white/40 text-white hover:bg-black/90'
+              }`}
+            >
+              {torchEnabled ? '💡 FLASH ON' : '💡 FLASH OFF'}
+            </button>
+          )}
         </div>
 
         {/* Capture Button */}
