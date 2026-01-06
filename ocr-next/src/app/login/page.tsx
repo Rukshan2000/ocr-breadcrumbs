@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useDispatch } from 'react-redux';
 import { useLoginMutation } from '@/store/services/authApi';
 import { setUser, setTokens } from '@/store/features/authSlice';
+import { convertUTCToIST } from '@/utils/dateConversion';
 import Link from 'next/link';
 
 export default function LoginPage() {
@@ -63,15 +64,21 @@ export default function LoginPage() {
       }).unwrap();
 
       if (response.success && response.data?.user && response.data?.tokens) {
+        // Convert UTC expiry time to IST (UTC+5:30)
+        const istExpiryTime = convertUTCToIST(response.data.tokens.expiresAt);
+
         // Store user and tokens in Redux
         dispatch(setUser(response.data.user));
-        dispatch(setTokens(response.data.tokens));
+        dispatch(setTokens({
+          ...response.data.tokens,
+          expiresAt: istExpiryTime, // Store IST time
+        }));
 
         // Store tokens and user data in localStorage for persistence
         localStorage.setItem('accessToken', response.data.tokens.accessToken);
         localStorage.setItem('refreshToken', response.data.tokens.refreshToken);
         localStorage.setItem('user', JSON.stringify(response.data.user));
-        localStorage.setItem('tokenExpiry', response.data.tokens.expiresAt);
+        localStorage.setItem('tokenExpiry', istExpiryTime); // Store IST time
 
         // Small delay to ensure Redux state is updated before navigation
         setTimeout(() => {

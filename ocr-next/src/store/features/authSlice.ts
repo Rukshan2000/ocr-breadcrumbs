@@ -29,6 +29,7 @@ export interface AuthState {
   isAuthenticated: boolean;
   loading: boolean;
   error: string | null;
+  isInitialized: boolean; // Track if TokenInitializer has completed
 }
 
 const initialState: AuthState = {
@@ -37,6 +38,7 @@ const initialState: AuthState = {
   isAuthenticated: false,
   loading: false,
   error: null,
+  isInitialized: false,
 };
 
 export const authSlice = createSlice({
@@ -72,6 +74,9 @@ export const authSlice = createSlice({
       state.tokens = null;
       state.isAuthenticated = false;
     },
+    setInitialized: (state, action: PayloadAction<boolean>) => {
+      state.isInitialized = action.payload;
+    },
   },
 });
 
@@ -83,6 +88,7 @@ export const {
   setError,
   clearAuth,
   logout,
+  setInitialized,
 } = authSlice.actions;
 
 export default authSlice.reducer;

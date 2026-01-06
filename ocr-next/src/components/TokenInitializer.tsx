@@ -3,7 +3,8 @@
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '@/store';
-import { setTokens, setUser } from '@/store/features/authSlice';
+import { setTokens, setUser, setInitialized } from '@/store/features/authSlice';
+import { convertUTCToIST } from '@/utils/dateConversion';
 
 /**
  * TokenInitializer Component
@@ -28,6 +29,15 @@ export function TokenInitializer() {
 
     if (accessToken && refreshToken && !isAuthenticated) {
       try {
+        // Get token expiry - convert from UTC to IST if it's in UTC format
+        let tokenExpiry = localStorage.getItem('tokenExpiry') || '';
+        
+        // Check if expiry is in UTC format (contains 'Z') and convert if needed
+        if (tokenExpiry && tokenExpiry.includes('Z')) {
+          tokenExpiry = convertUTCToIST(tokenExpiry);
+          localStorage.setItem('tokenExpiry', tokenExpiry);
+        }
+
         // Restore user data from localStorage
         if (userStr) {
           const user = JSON.parse(userStr);
@@ -39,7 +49,7 @@ export function TokenInitializer() {
           setTokens({
             accessToken,
             refreshToken,
-            expiresAt: localStorage.getItem('tokenExpiry') || '',
+            expiresAt: tokenExpiry,
             tokenType: 'Bearer',
           })
         );
